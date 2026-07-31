@@ -7,21 +7,18 @@ import pandas as pd
 
 st.set_page_config(layout="wide", page_title="Philippine Coastal Vulnerability")
 
-# By defining these expanders first, we control the exact visual order on the sidebar 
-# (Most Important to Least Important) regardless of when the logic runs in the script.
-
 st.sidebar.markdown("### 🎛️ Dashboard Controls")
 
 exp_analysis = st.sidebar.expander("🎯 Primary Analysis", expanded=True)
+exp_hazard = st.sidebar.expander("🌊 Hazard Overlay", expanded=True)
 exp_thresholds = st.sidebar.expander("🎚️ Risk Thresholds", expanded=True)
-exp_context = st.sidebar.expander("🌍 Context Layers", expanded=False)
+exp_context = st.sidebar.expander("⛰️ 3D Terrain", expanded=False)
 exp_map = st.sidebar.expander("🗺️ Map Settings", expanded=False)
 exp_ui = st.sidebar.expander("⚙️ UI Settings", expanded=False)
 
 with exp_ui:
     map_height = st.slider("Map Canvas Height (px)", min_value=500, max_value=1200, value=700, step=50)
 
-# Removed the aggressive gap hack that caused the overlapping text.
 st.markdown(f"""
     <style>
         /* Main UI compaction */
@@ -125,7 +122,6 @@ with exp_analysis:
     res_choice = st.radio("Spatial Resolution", ["500m (National)", "250m (Local)"])
     res_val = "500m" if "500m" in res_choice else "250m"
     
-    # Subtle separator to keep the UI clean
     st.markdown("<hr style='margin-top: 0.5rem; margin-bottom: 0.5rem; border-color: #334155;'/>", unsafe_allow_html=True)
     
     analysis_mode = st.radio(
@@ -134,6 +130,11 @@ with exp_analysis:
         label_visibility="collapsed"
     )
     is_economic_mode = "Economic" in analysis_mode
+
+with exp_hazard:
+    show_ssa = st.checkbox("Show SSA4 Hazard Zones (Level 3+)", value=False)
+    hazard_opacity = st.slider("Hazard Opacity (%)", min_value=0, max_value=100, value=60) if show_ssa else 0
+    alpha_val = int((hazard_opacity / 100) * 255)
 
 # Load the core dataset based on resolution choice
 gdf = load_data(res_val)
@@ -145,7 +146,6 @@ if gdf is not None:
         min_bldgs = st.slider("Minimum Exposed Buildings", min_value=0, max_value=max_exp, value=50)
         
         if is_economic_mode:
-            # Custom styled HTML info box (Legible Navy Blue)
             st.markdown("""
                 <div style="background-color: #0f172a; color: #ffffff; padding: 12px; border-radius: 6px; border: 1px solid #3b82f6; font-size: 14px; line-height: 1.4; margin-bottom: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
                     🟦 <b>Economic Mode:</b> Showing Commercial Nodes (>500sqm) facing total operational loss.
@@ -164,7 +164,6 @@ if gdf is not None:
             filtered_gdf['fill_color'] = filtered_gdf['lost_commercial'].apply(lambda x: [30, 136, 229, 220])
             dynamic_tooltip = "<b>Lost Commercial Nodes:</b> {lost_commercial} facilities"
         else:
-            # Custom styled HTML info box (Legible Deep Red)
             st.markdown("""
                 <div style="background-color: #450a0a; color: #ffffff; padding: 12px; border-radius: 6px; border: 1px solid #ef4444; font-size: 14px; line-height: 1.4; margin-bottom: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
                     🟥 <b>Shelter Mode:</b> Showing Vulnerable Residential structures (<120sqm) facing total structural failure.
@@ -199,10 +198,6 @@ if gdf is not None:
             terrain_exaggeration = 1.0
             enable_terrain_shading = False
             terrain_material = False
-        
-        show_ssa = st.checkbox("Show SSA4 Hazard Zones", value=False)
-        hazard_opacity = st.slider("Hazard Opacity (%)", min_value=0, max_value=100, value=60) if show_ssa else 0
-        alpha_val = int((hazard_opacity / 100) * 255)
 
     hex_layer = pdk.Layer(
         "GeoJsonLayer",
@@ -251,7 +246,7 @@ if gdf is not None:
                 local_ssa = ssa_gdf.cx[minx:maxx, miny:maxy].copy()
                 
                 if not local_ssa.empty:
-                    with exp_context:
+                    with exp_hazard:
                         st.markdown("🔴 **Level 3** (> 1.5m Inundation)", unsafe_allow_html=True)
                     
                     if 'haz' in local_ssa.columns:
@@ -275,7 +270,7 @@ if gdf is not None:
                     else:
                         map_layers.insert(0, ssa_layer)
             else:
-                with exp_context:
+                with exp_hazard:
                     st.error("ssa_data_subd.parquet not found.")
 
     view_state = pdk.ViewState(
@@ -299,7 +294,6 @@ if gdf is not None:
 
     st.pydeck_chart(r, width='stretch')
     
-    # Pushes the Aggregate Statistics down exactly by the amount the slider overflows 500px
     overflow_height = map_height - 500
     if overflow_height > 0:
         st.markdown(f"<div style='height: {overflow_height}px; width: 100%; pointer-events: none;'></div>", unsafe_allow_html=True)

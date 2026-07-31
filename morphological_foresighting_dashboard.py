@@ -12,7 +12,6 @@ st.sidebar.markdown("### 🎛️ Dashboard Controls")
 exp_analysis = st.sidebar.expander("🎯 Primary Analysis", expanded=True)
 exp_hazard = st.sidebar.expander("🌊 Hazard Overlay", expanded=True)
 exp_thresholds = st.sidebar.expander("🎚️ Risk Thresholds", expanded=True)
-exp_context = st.sidebar.expander("⛰️ 3D Terrain", expanded=False)
 exp_map = st.sidebar.expander("🗺️ Map Settings", expanded=False)
 exp_ui = st.sidebar.expander("⚙️ UI Settings", expanded=False)
 
@@ -183,7 +182,8 @@ if gdf is not None:
         
         st.markdown(f"**Showing {len(filtered_gdf):,} Hotspots**")
 
-    with exp_context:
+    with exp_map:
+        st.markdown("<hr style='margin-top: 0.5rem; margin-bottom: 0.5rem; border-color: #334155;'/>", unsafe_allow_html=True)
         enable_3d_terrain = st.checkbox("⛰️ Enable 3D Terrain (DTM)", value=False)
         
         if enable_3d_terrain:

@@ -120,22 +120,26 @@ def get_basemap_config(choice):
 
 with exp_map:
     basemap_choice = st.selectbox("Basemap Style", ["OpenStreetMap", "Satellite (Esri Free)", "Dark Mode (Carto)"], index=1) 
+
+with exp_analysis:
     res_choice = st.radio("Spatial Resolution", ["500m (National)", "250m (Local)"])
     res_val = "500m" if "500m" in res_choice else "250m"
+    
+    # Subtle separator to keep the UI clean
+    st.markdown("<hr style='margin-top: 0.5rem; margin-bottom: 0.5rem; border-color: #334155;'/>", unsafe_allow_html=True)
+    
+    analysis_mode = st.radio(
+        "Analysis Mode",
+        ["🏠 Shelter Loss (Residential)", "🏭 Economic Disruption (Commercial)"],
+        label_visibility="collapsed"
+    )
+    is_economic_mode = "Economic" in analysis_mode
 
 # Load the core dataset based on resolution choice
 gdf = load_data(res_val)
 map_layers = []
 
 if gdf is not None:
-    with exp_analysis:
-        analysis_mode = st.radio(
-            "Analysis Mode",
-            ["🏠 Shelter Loss (Residential)", "🏭 Economic Disruption (Commercial)"],
-            label_visibility="collapsed"
-        )
-        is_economic_mode = "Economic" in analysis_mode
-
     with exp_thresholds:
         max_exp = int(gdf['total_exposed_buildings'].max()) if not gdf.empty else 100
         min_bldgs = st.slider("Minimum Exposed Buildings", min_value=0, max_value=max_exp, value=50)

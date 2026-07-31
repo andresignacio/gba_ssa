@@ -3,28 +3,64 @@ import geopandas as gpd
 import pydeck as pdk
 import json
 import urllib.parse
+import pandas as pd
 
-st.set_page_config(layout="wide", page_title="Morphological Foresighting Digital Twin")
+st.set_page_config(layout="wide", page_title="Philippine Coastal Vulnerability")
 
-st.title("🌊 Morphological Foresighting Digital Twin")
-st.markdown("Visualizing irreversible 'Lost Stock' displacement across the Philippine archipelago.")
+# By defining these expanders first, we control the exact visual order on the sidebar 
+# (Most Important to Least Important) regardless of when the logic runs in the script.
 
-with st.expander("📖 How to read this map", expanded=True):
-    st.markdown("""
-    **Analysis Modes:** Use the toggle in the sidebar to physically decouple the data.
-    
-    🏠 **Shelter Loss Mode (Yellow ➔ Red):** 
-    *   **Height:** Total Exposed Buildings (sheer volume of the neighborhood).
-    *   **Color:** % of structures that are destroyed **<120sqm housing**. 
-    *   🟨 *Yellow:* Lower displacement risk. 
-    *   🟥 *Red:* Severe Displacement Zone (total wipeout of vulnerable housing).
-    
-    🏭 **Economic Disruption Mode (White ➔ Deep Blue):** 
-    *   **Height:** Number of destroyed **>500sqm commercial facilities**.
-    *   **Color:** Concentration of commercial loss.
-    *   ⬜ *White/Light Blue:* Isolated loss of a single commercial node.
-    *   🟦 *Deep Blue:* Severe Economic Wipeout (multiple massive facilities destroyed).
-    """)
+st.sidebar.markdown("### 🎛️ Dashboard Controls")
+
+exp_analysis = st.sidebar.expander("🎯 Primary Analysis", expanded=True)
+exp_thresholds = st.sidebar.expander("🎚️ Risk Thresholds", expanded=True)
+exp_context = st.sidebar.expander("🌍 Context Layers", expanded=False)
+exp_map = st.sidebar.expander("🗺️ Map Settings", expanded=False)
+exp_ui = st.sidebar.expander("⚙️ UI Settings", expanded=False)
+
+with exp_ui:
+    map_height = st.slider("Map Canvas Height (px)", min_value=500, max_value=1200, value=700, step=50)
+
+# Removed the aggressive gap hack that caused the overlapping text.
+st.markdown(f"""
+    <style>
+        /* Main UI compaction */
+        .block-container {{
+            padding-top: 1rem !important;
+            padding-bottom: 1rem !important;
+            max-width: 95% !important;
+        }}
+        h1 {{
+            font-size: 1.8rem !important;
+            margin-bottom: 0 !important;
+            padding-bottom: 0 !important;
+        }}
+        .subtitle {{
+            color: #64748b;
+            font-size: 1rem;
+            margin-top: 0;
+            margin-bottom: 1rem;
+        }}
+        
+        /* FORCE PYDECK IFRAME TO OBEY THE SLIDER HEIGHT */
+        [data-testid="stDeckGlJsonChart"] {{
+            height: {map_height}px !important;
+        }}
+        [data-testid="stDeckGlJsonChart"] iframe {{
+            height: {map_height}px !important;
+        }}
+        
+        /* Subtle tweak to expander padding for neatness without overlap */
+        [data-testid="stSidebar"] .streamlit-expanderHeader {{
+            padding-top: 0.5rem;
+            padding-bottom: 0.5rem;
+            font-weight: 600;
+        }}
+    </style>
+""", unsafe_allow_html=True)
+
+st.markdown("<h1>🌊 Morphological Foresighting Digital Twin</h1>", unsafe_allow_html=True)
+st.markdown("<p class='subtitle'>Visualizing irreversible 'Lost Stock' displacement across the Philippine archipelago.</p>", unsafe_allow_html=True)
 
 @st.cache_data
 def load_data(resolution):
@@ -35,7 +71,7 @@ def load_data(resolution):
             gdf = gdf.to_crs("EPSG:4326")
         return gdf
     except Exception as e:
-        st.error(f"Error loading {file_path}. Make sure you ran the export script.")
+        st.error(f"Error loading {file_path}. Make sure it is in the same folder as this script.")
         return None
 
 @st.cache_data
@@ -82,107 +118,87 @@ def get_basemap_config(choice):
         uri = "data:application/json;charset=utf-8," + urllib.parse.quote(json.dumps(style))
         return "mapbox", uri
 
-st.sidebar.header("Map Controls")
+with exp_map:
+    basemap_choice = st.selectbox("Basemap Style", ["OpenStreetMap", "Satellite (Esri Free)", "Dark Mode (Carto)"], index=1) 
+    res_choice = st.radio("Spatial Resolution", ["500m (National)", "250m (Local)"])
+    res_val = "500m" if "500m" in res_choice else "250m"
 
-basemap_choice = st.sidebar.selectbox(
-    "Basemap Style", 
-    ["OpenStreetMap", "Satellite (Esri Free)", "Dark Mode (Carto)"],
-    index=1) 
-
-res_choice = st.sidebar.radio("Spatial Resolution", ["500m (National)", "250m (Local)"])
-res_val = "500m" if "500m" in res_choice else "250m"
-
+# Load the core dataset based on resolution choice
 gdf = load_data(res_val)
 map_layers = []
 
 if gdf is not None:
-    st.sidebar.subheader("Risk Filters")
-    
-    analysis_mode = st.sidebar.radio(
-        "Analysis Mode (Decoupling)", 
-        ["🏠 Shelter Loss (Residential)", "🏭 Economic Disruption (Commercial)"]
-    )
-    
-    min_bldgs = st.sidebar.slider(
-        "Minimum Exposed Buildings (Base Filter)", 
-        min_value=0, 
-        max_value=int(gdf['total_exposed_buildings'].max()), 
-        value=50
-    )
-    
-    # DYNAMIC VARIABLES BASED ON MODE
-    if "Shelter" in analysis_mode:
-        min_residential_loss = st.sidebar.slider(
-            "Minimum Residential Loss (%)", 
-            min_value=0, 
-            max_value=100, 
-            value=10
+    with exp_analysis:
+        analysis_mode = st.radio(
+            "Analysis Mode",
+            ["🏠 Shelter Loss (Residential)", "🏭 Economic Disruption (Commercial)"],
+            label_visibility="collapsed"
         )
-        
-        filtered_gdf = gdf[
-            (gdf['total_exposed_buildings'] >= min_bldgs) & 
-            (gdf['pct_lost_residential'] >= min_residential_loss)
-        ].copy()
-        
-        filtered_gdf['fill_color'] = filtered_gdf['pct_lost_residential'].apply(
-            lambda x: [255, max(0, int(255 - (x * 2.5))), 0, 200]
-        )
-        
-        st.sidebar.markdown(f"**Showing {len(filtered_gdf):,} Displacement Hotspots**")
-        
-        elevation_metric = "total_exposed_buildings"
-        elevation_multiplier = 10
-        dynamic_tooltip = "<b>Total Exposed Buildings:</b> {total_exposed_buildings} <br/> <b>Lost Residential (<120sqm):</b> {lost_residential} units <br/><b>Residential Loss Rate:</b> {pct_lost_residential}%"
-        
-    else:
-        max_commercial_val = int(gdf['lost_commercial'].max()) if not gdf.empty else 10
-        min_commercial = st.sidebar.slider(
-            "Minimum Lost Commercial Nodes (>500sqm)", 
-            min_value=1, 
-            max_value=max_commercial_val, 
-            value=1
-        )
-        
-        filtered_gdf = gdf[
-            (gdf['total_exposed_buildings'] >= min_bldgs) & 
-            (gdf['lost_commercial'] >= min_commercial)
-        ].copy()
-        
-        max_c = filtered_gdf['lost_commercial'].max() if not filtered_gdf.empty and filtered_gdf['lost_commercial'].max() > 0 else 1
-        filtered_gdf['fill_color'] = filtered_gdf['lost_commercial'].apply(
-            lambda x: [int(255 - (x/max_c)*255), int(255 - (x/max_c)*255), 255, 200] 
-        )
-        
-        st.sidebar.markdown(f"**Showing {len(filtered_gdf):,} Economic Hotspots**")
-        
-        # In Commercial Mode, height is purely the number of destroyed factories/warehouses
-        # We increase the multiplier to 100 so small numbers (1 to 5) still stand out visually
-        elevation_metric = "lost_commercial"
-        elevation_multiplier = 100 
-        dynamic_tooltip = "<b>Lost Commercial Nodes (>500sqm):</b> {lost_commercial} <br/> <i>(Total neighborhood exposure: {total_exposed_buildings} buildings)</i>"
+        is_economic_mode = "Economic" in analysis_mode
 
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("Context Layers")
-    
-    enable_3d_terrain = st.sidebar.checkbox("⛰️ Enable 3D Terrain (DTM)", value=False)
-    
-    if enable_3d_terrain:
-        terrain_exaggeration = st.sidebar.slider("Terrain Exaggeration (Vertical)", min_value=1.0, max_value=3.0, value=1.5, step=0.1)
-        enable_terrain_shading = st.sidebar.checkbox("☀️ Enable Artificial 3D Shading", value=False)
+    with exp_thresholds:
+        max_exp = int(gdf['total_exposed_buildings'].max()) if not gdf.empty else 100
+        min_bldgs = st.slider("Minimum Exposed Buildings", min_value=0, max_value=max_exp, value=50)
         
-        if enable_terrain_shading:
-            terrain_material = {"ambient": 0.6, "diffuse": 1.2, "shininess": 0, "specularColor": [0, 0, 0]}
+        if is_economic_mode:
+            # Custom styled HTML info box (Legible Navy Blue)
+            st.markdown("""
+                <div style="background-color: #0f172a; color: #ffffff; padding: 12px; border-radius: 6px; border: 1px solid #3b82f6; font-size: 14px; line-height: 1.4; margin-bottom: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                    🟦 <b>Economic Mode:</b> Showing Commercial Nodes (>500sqm) facing total operational loss.
+                </div>
+            """, unsafe_allow_html=True)
+            
+            max_com = int(gdf['lost_commercial'].max()) if not gdf.empty else 10
+            min_loss = st.slider("Minimum Lost Commercial Nodes", min_value=0, max_value=max_com, value=1)
+            
+            filtered_gdf = gdf[
+                (gdf['total_exposed_buildings'] >= min_bldgs) & 
+                (gdf['lost_commercial'] >= min_loss)
+            ].copy()
+            
+            filtered_gdf['render_height'] = filtered_gdf['lost_commercial'] * 50
+            filtered_gdf['fill_color'] = filtered_gdf['lost_commercial'].apply(lambda x: [30, 136, 229, 220])
+            dynamic_tooltip = "<b>Lost Commercial Nodes:</b> {lost_commercial} facilities"
         else:
-            terrain_material = {"ambient": 1.0, "diffuse": 0.0, "shininess": 0, "specularColor": [0, 0, 0]}
-    else:
-        terrain_exaggeration = 1.0
-        enable_terrain_shading = False
-        terrain_material = False
-    
-    show_ssa = st.sidebar.checkbox("Show SSA4 Hazard Zones", value=False)
-    
-    hazard_transparency = st.sidebar.slider("Hazard Transparency (%)", min_value=0, max_value=100, value=40) if show_ssa else 100
-    alpha_val = int(((100 - hazard_transparency) / 100) * 255)
+            # Custom styled HTML info box (Legible Deep Red)
+            st.markdown("""
+                <div style="background-color: #450a0a; color: #ffffff; padding: 12px; border-radius: 6px; border: 1px solid #ef4444; font-size: 14px; line-height: 1.4; margin-bottom: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+                    🟥 <b>Shelter Mode:</b> Showing Vulnerable Residential structures (<120sqm) facing total structural failure.
+                </div>
+            """, unsafe_allow_html=True)
+            
+            min_loss = st.slider("Minimum Residential Loss (%)", min_value=0, max_value=100, value=10)
+            
+            filtered_gdf = gdf[
+                (gdf['total_exposed_buildings'] >= min_bldgs) & 
+                (gdf['pct_lost_residential'] >= min_loss)
+            ].copy()
+            
+            filtered_gdf['render_height'] = filtered_gdf['total_exposed_buildings']
+            filtered_gdf['fill_color'] = filtered_gdf['pct_lost_residential'].apply(lambda x: [255, max(0, int(255 - (x * 2.5))), 0, 200])
+            dynamic_tooltip = "<b>Total Exposed Buildings:</b> {total_exposed_buildings} <br/> <b>Lost Residential Stock:</b> {lost_residential} units <br/> <b>Residential Loss Rate:</b> {pct_lost_residential}%"
+        
+        st.markdown(f"**Showing {len(filtered_gdf):,} Hotspots**")
+
+    with exp_context:
+        enable_3d_terrain = st.checkbox("⛰️ Enable 3D Terrain (DTM)", value=False)
+        
+        if enable_3d_terrain:
+            terrain_exaggeration = st.slider("Terrain Exaggeration", min_value=1.0, max_value=3.0, value=1.5, step=0.1)
+            enable_terrain_shading = st.checkbox("☀️ 3D Shading", value=False)
+            
+            if enable_terrain_shading:
+                terrain_material = {"ambient": 0.6, "diffuse": 1.2, "shininess": 0, "specularColor": [0, 0, 0]}
+            else:
+                terrain_material = {"ambient": 1.0, "diffuse": 0.0, "shininess": 0, "specularColor": [0, 0, 0]}
+        else:
+            terrain_exaggeration = 1.0
+            enable_terrain_shading = False
+            terrain_material = False
+        
+        show_ssa = st.checkbox("Show SSA4 Hazard Zones", value=False)
+        hazard_opacity = st.slider("Hazard Opacity (%)", min_value=0, max_value=100, value=60) if show_ssa else 0
+        alpha_val = int((hazard_opacity / 100) * 255)
 
     hex_layer = pdk.Layer(
         "GeoJsonLayer",
@@ -192,11 +208,10 @@ if gdf is not None:
         filled=True,
         extruded=True,
         wireframe=True,
-        get_elevation=elevation_metric,
-        elevation_scale=elevation_multiplier, 
+        get_elevation="render_height",
+        elevation_scale=10, 
         get_fill_color="fill_color", 
     )
-
     map_layers.append(hex_layer)
 
     if enable_3d_terrain:
@@ -232,8 +247,13 @@ if gdf is not None:
                 local_ssa = ssa_gdf.cx[minx:maxx, miny:maxy].copy()
                 
                 if not local_ssa.empty:
-                    st.sidebar.markdown("**Hazard Levels:**")
-                    st.sidebar.markdown("🔴 **Level 3** (> 1.5m Inundation)", unsafe_allow_html=True)
+                    with exp_context:
+                        st.markdown("🔴 **Level 3** (> 1.5m Inundation)", unsafe_allow_html=True)
+                    
+                    if 'haz' in local_ssa.columns:
+                        local_ssa['haz'] = local_ssa['haz'].astype(float)
+                    elif 'ssa_level' in local_ssa.columns:
+                        local_ssa['ssa_level'] = local_ssa['ssa_level'].astype(float)
                     
                     ssa_layer = pdk.Layer(
                         "GeoJsonLayer",
@@ -243,13 +263,16 @@ if gdf is not None:
                         filled=True,
                         extruded=False,  
                         get_fill_color=f"[228, 26, 28, {alpha_val}]",
-                        parameters={"depthTest": False} 
+                        parameters={"depthTest": False}  
                     )
                     
                     if enable_3d_terrain:
                         map_layers.insert(1, ssa_layer)
                     else:
                         map_layers.insert(0, ssa_layer)
+            else:
+                with exp_context:
+                    st.error("ssa_data_subd.parquet not found.")
 
     view_state = pdk.ViewState(
         longitude=121.7740, 
@@ -266,10 +289,16 @@ if gdf is not None:
         initial_view_state=view_state,
         map_style=style_uri,
         map_provider=provider,
-        tooltip={"html": dynamic_tooltip}
+        tooltip={"html": dynamic_tooltip},
+        height=map_height
     )
 
-    st.pydeck_chart(r)
+    st.pydeck_chart(r, width='stretch')
+    
+    # Pushes the Aggregate Statistics down exactly by the amount the slider overflows 500px
+    overflow_height = map_height - 500
+    if overflow_height > 0:
+        st.markdown(f"<div style='height: {overflow_height}px; width: 100%; pointer-events: none;'></div>", unsafe_allow_html=True)
 
     st.subheader("Aggregate Statistics (Displacement Hotspots)")
     col1, col2, col3, col4 = st.columns(4)
@@ -280,5 +309,5 @@ if gdf is not None:
     total_com = int(filtered_gdf['lost_commercial'].sum()) if not filtered_gdf.empty else 0
     
     col2.metric("Total Exposed", f"{total_exposed:,}")
-    col3.metric("Lost Residential (<120sqm)", f"{total_res:,}")
-    col4.metric("Lost Commercial (>500sqm)", f"{total_com:,}")
+    col3.metric("Lost Residential", f"{total_res:,}")
+    col4.metric("Lost Commercial", f"{total_com:,}")

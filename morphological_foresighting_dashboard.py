@@ -67,9 +67,9 @@ def load_data(resolution):
         st.error(f"Error loading {file_path}. Make sure it is in the same folder as this script.")
         return None
 
-# CRITICAL FIX: Changed to cache_resource to prevent Streamlit from deep-copying the massive dictionary
-@st.cache_resource
-def load_hazard_geojson(file_path):
+# CRITICAL FIX: Returning the pure GeoDataFrame so we can use spatial cropping (.cx)
+@st.cache_data
+def load_hazard_layer(file_path):
     try:
         gdf = gpd.read_parquet(file_path)
         if gdf.crs is None or gdf.crs != "EPSG:4326":
@@ -80,7 +80,7 @@ def load_hazard_geojson(file_path):
         elif 'ssa_level' in gdf.columns:
             gdf['ssa_level'] = gdf['ssa_level'].astype(float)
             
-        return json.loads(gdf.to_json())
+        return gdf
     except Exception as e:
         return None
 
@@ -217,12 +217,20 @@ if gdf is not None:
 
     if show_ssa:
         with st.spinner("Loading Hazard Geometries..."):
-            ssa_geojson = load_hazard_geojson("ssa_data_subd.parquet")
+            ssa_gdf = load_hazard_layer("ssa_data_subd.parquet")
             
-            if ssa_geojson is not None:
+            if ssa_gdf is not None:
+                # DYNAMIC SPATIAL CROP: This is the magic that fixes the WebSocket freeze!
+                if not filtered_gdf.empty:
+                    minx, miny, maxx, maxy = filtered_gdf.total_bounds
+                    local_ssa = ssa_gdf.cx[minx:maxx, miny:maxy].copy()
+                else:
+                    # If no hexes are visible, return an empty frame so we don't crash the browser
+                    local_ssa = gpd.GeoDataFrame(columns=ssa_gdf.columns, crs=ssa_gdf.crs)
+                    
                 ssa_layer = pdk.Layer(
                     "GeoJsonLayer",
-                    data=ssa_geojson, 
+                    data=local_ssa, 
                     pickable=False,
                     stroked=False,
                     filled=True,

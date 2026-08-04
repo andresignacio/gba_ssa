@@ -180,6 +180,13 @@ if gdf is not None:
                 "shininess": 0,
                 "specularColor": [0, 0, 0]
             }
+        else:
+            terrain_kwargs["material"] = {
+                "ambient": 1.0,
+                "diffuse": 0.0,
+                "shininess": 0,
+                "specularColor": [0, 0, 0]
+            }
             
         terrain_layer = pdk.Layer("TerrainLayer", **terrain_kwargs)
         map_layers.insert(0, terrain_layer)
@@ -228,7 +235,6 @@ if gdf is not None:
                         parameters={"depthTest": False}  
                     )
                     
-                    # Ensure it rests right above the terrain but beneath the hex towers
                     if enable_3d_terrain:
                         map_layers.insert(1, ssa_layer)
                     else:

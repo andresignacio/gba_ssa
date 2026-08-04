@@ -41,16 +41,17 @@ with exp_map:
     st.markdown("<hr style='margin: 0.5rem 0; border-color: #334155;'/>", unsafe_allow_html=True)
     map_height = st.slider("Map Canvas Height (px)", min_value=500, max_value=1200, value=700, step=50)
 
-st.markdown(f"""
-    <style>
-        .block-container {{ padding-top: 1rem !important; padding-bottom: 1rem !important; max-width: 95% !important; }}
-        h1 {{ font-size: 1.8rem !important; margin-bottom: 0 !important; padding-bottom: 0 !important; }}
-        .subtitle {{ color: #64748b; font-size: 1rem; margin-top: 0; margin-bottom: 1rem; }}
-        [data-testid="stDeckGlJsonChart"] {{ height: {map_height}px !important; }}
-        [data-testid="stDeckGlJsonChart"] iframe {{ height: {map_height}px !important; }}
-        [data-testid="stSidebar"] .streamlit-expanderHeader {{ padding-top: 0.5rem; padding-bottom: 0.5rem; font-weight: 600; }}
-    </style>
-""", unsafe_allow_html=True)
+custom_css = (
+    "<style>\n"
+    ".block-container { padding-top: 1rem !important; padding-bottom: 1rem !important; max-width: 95% !important; }\n"
+    "h1 { font-size: 1.8rem !important; margin-bottom: 0 !important; padding-bottom: 0 !important; }\n"
+    ".subtitle { color: #64748b; font-size: 1rem; margin-top: 0; margin-bottom: 1rem; }\n"
+    f"[data-testid='stDeckGlJsonChart'] {{ height: {map_height}px !important; }}\n"
+    f"[data-testid='stDeckGlJsonChart'] iframe {{ height: {map_height}px !important; }}\n"
+    "[data-testid='stSidebar'] .streamlit-expanderHeader { padding-top: 0.5rem; padding-bottom: 0.5rem; font-weight: 600; }\n"
+    "</style>"
+)
+st.markdown(custom_css, unsafe_allow_html=True)
 
 st.markdown("<h1>🌊 Morphological Foresighting Digital Twin</h1>", unsafe_allow_html=True)
 st.markdown("<p class='subtitle'>A Scenario-Based Exposure & 'Lost Stock' Analytics Platform.</p>", unsafe_allow_html=True)
@@ -67,7 +68,6 @@ def load_data(resolution):
         st.error(f"Error loading {file_path}. Make sure it is in the same folder as this script.")
         return None
 
-# CRITICAL FIX: Returning the pure GeoDataFrame so we can use spatial cropping (.cx)
 @st.cache_data
 def load_hazard_layer(file_path):
     try:
@@ -129,11 +129,12 @@ if gdf is not None:
         min_bldgs = st.slider("Minimum Exposed Buildings", min_value=0, max_value=max_exp, value=50)
         
         if is_economic_mode:
-            st.markdown("""
-                <div style="background-color: #0f172a; color: #ffffff; padding: 12px; border-radius: 6px; border: 1px solid #3b82f6; font-size: 14px; line-height: 1.4; margin-bottom: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
-                    🟦 <b>Economic Mode:</b> Showing Commercial Nodes (>500sqm) facing total operational loss.
-                </div>
-            """, unsafe_allow_html=True)
+            eco_msg = (
+                "<div style='background-color: #0f172a; color: #ffffff; padding: 12px; border-radius: 6px; border: 1px solid #3b82f6; font-size: 14px; line-height: 1.4; margin-bottom: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.2);'>"
+                "🟦 <b>Economic Mode:</b> Showing Commercial Nodes (>500sqm) facing total operational loss."
+                "</div>"
+            )
+            st.markdown(eco_msg, unsafe_allow_html=True)
             
             max_com = int(gdf['lost_commercial'].max()) if not gdf.empty else 10
             min_loss = st.slider("Minimum Lost Commercial Nodes", min_value=0, max_value=max_com, value=1)
@@ -147,11 +148,12 @@ if gdf is not None:
             filtered_gdf['fill_color'] = filtered_gdf['lost_commercial'].apply(lambda x: [30, 136, 229, 220])
             dynamic_tooltip = "<b>Lost Commercial Nodes:</b> {lost_commercial} facilities"
         else:
-            st.markdown("""
-                <div style="background-color: #450a0a; color: #ffffff; padding: 12px; border-radius: 6px; border: 1px solid #ef4444; font-size: 14px; line-height: 1.4; margin-bottom: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
-                    🟥 <b>Shelter Mode:</b> Showing Vulnerable Residential structures (<120sqm) facing total structural failure.
-                </div>
-            """, unsafe_allow_html=True)
+            shelter_msg = (
+                "<div style='background-color: #450a0a; color: #ffffff; padding: 12px; border-radius: 6px; border: 1px solid #ef4444; font-size: 14px; line-height: 1.4; margin-bottom: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.2);'>"
+                "🟥 <b>Shelter Mode:</b> Showing Vulnerable Residential structures (<120sqm) facing total structural failure."
+                "</div>"
+            )
+            st.markdown(shelter_msg, unsafe_allow_html=True)
             
             min_loss = st.slider("Minimum Residential Loss (%)", min_value=0, max_value=100, value=10)
             
@@ -217,20 +219,13 @@ if gdf is not None:
 
     if show_ssa:
         with st.spinner("Loading Hazard Geometries..."):
+            # Load the hazard file directly without .cx cropping
             ssa_gdf = load_hazard_layer("ssa_data_subd.parquet")
             
             if ssa_gdf is not None:
-                # DYNAMIC SPATIAL CROP: This is the magic that fixes the WebSocket freeze!
-                if not filtered_gdf.empty:
-                    minx, miny, maxx, maxy = filtered_gdf.total_bounds
-                    local_ssa = ssa_gdf.cx[minx:maxx, miny:maxy].copy()
-                else:
-                    # If no hexes are visible, return an empty frame so we don't crash the browser
-                    local_ssa = gpd.GeoDataFrame(columns=ssa_gdf.columns, crs=ssa_gdf.crs)
-                    
                 ssa_layer = pdk.Layer(
                     "GeoJsonLayer",
-                    data=local_ssa, 
+                    data=ssa_gdf, 
                     pickable=False,
                     stroked=False,
                     filled=True,
@@ -245,7 +240,7 @@ if gdf is not None:
                     map_layers.insert(0, ssa_layer)
             else:
                 with exp_hazard:
-                    st.error("ssa_data_subd.parquet not found.")
+                    st.error("ssa_data_subd.parquet not found. Please ensure the hazard file is in your directory.")
 
     view_state = pdk.ViewState(
         longitude=121.7740, 

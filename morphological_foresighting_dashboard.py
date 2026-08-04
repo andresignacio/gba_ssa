@@ -56,7 +56,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 st.markdown("<h1>🌊 Morphological Foresighting Digital Twin</h1>", unsafe_allow_html=True)
-st.markdown("<p class='subtitle'>A Scenario-Based Exposure & 'Lost Stock' Analytics Platform.</p>", unsafe_allow_html=True)
+st.markdown("<p class='subtitle'>A Scenario-Based Exposure & "Lost Stock" Analytics Platform.</p>", unsafe_allow_html=True)
 
 @st.cache_data
 def load_data(resolution):

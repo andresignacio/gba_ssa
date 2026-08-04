@@ -10,48 +10,45 @@ st.set_page_config(layout="wide", page_title="Philippine Coastal Vulnerability")
 st.sidebar.markdown("### 🎛️ Dashboard Controls")
 
 exp_analysis = st.sidebar.expander("🎯 Primary Analysis", expanded=True)
-exp_hazard = st.sidebar.expander("🌊 Hazard Overlay", expanded=True)
-exp_thresholds = st.sidebar.expander("🎚️ Risk Thresholds", expanded=True)
-exp_map = st.sidebar.expander("🗺️ Map Settings", expanded=False)
-exp_ui = st.sidebar.expander("⚙️ UI Settings", expanded=False)
+with exp_analysis:
+    analysis_mode = st.radio("Analysis Mode", ["🏠 Shelter Loss (Residential)", "🏭 Economic Disruption (Commercial)"], label_visibility="collapsed")
+    is_economic_mode = "Economic" in analysis_mode
+    
+    st.markdown("<hr style='margin: 0.5rem 0; border-color: #334155;'/>", unsafe_allow_html=True)
+    
+    res_choice = st.radio("Spatial Resolution", ["500m (National)", "250m (Local)"])
+    res_val = "500m" if "500m" in res_choice else "250m"
 
-with exp_ui:
+exp_hazard = st.sidebar.expander("🌊 Hazard Overlay", expanded=True)
+with exp_hazard:
+    show_ssa = st.checkbox("Show SSA4 Hazard Zones (Level 3+)", value=False)
+    hazard_opacity = st.slider("Hazard Opacity (%)", min_value=0, max_value=100, value=60) if show_ssa else 0
+    alpha_val = int((hazard_opacity / 100) * 255)
+
+exp_thresholds = st.sidebar.expander("🎚️ Risk Thresholds", expanded=True)
+
+exp_map = st.sidebar.expander("🗺️ Map Settings", expanded=False)
+with exp_map:
+    basemap_choice = st.selectbox("Basemap Style", ["OpenStreetMap", "Satellite (Esri Free)", "Dark Mode (Carto)"], index=1)
+    
+    st.markdown("<hr style='margin: 0.5rem 0; border-color: #334155;'/>", unsafe_allow_html=True)
+    
+    enable_3d_terrain = st.checkbox("⛰️ Enable 3D Terrain (DTM)", value=False)
+    if enable_3d_terrain:
+        terrain_exaggeration = st.slider("Terrain Exaggeration", min_value=1.0, max_value=3.0, value=1.5, step=0.1)
+        enable_terrain_shading = st.checkbox("☀️ 3D Shading", value=False)
+        
+    st.markdown("<hr style='margin: 0.5rem 0; border-color: #334155;'/>", unsafe_allow_html=True)
     map_height = st.slider("Map Canvas Height (px)", min_value=500, max_value=1200, value=700, step=50)
 
 st.markdown(f"""
     <style>
-        /* Main UI compaction */
-        .block-container {{
-            padding-top: 1rem !important;
-            padding-bottom: 1rem !important;
-            max-width: 95% !important;
-        }}
-        h1 {{
-            font-size: 1.8rem !important;
-            margin-bottom: 0 !important;
-            padding-bottom: 0 !important;
-        }}
-        .subtitle {{
-            color: #64748b;
-            font-size: 1rem;
-            margin-top: 0;
-            margin-bottom: 1rem;
-        }}
-        
-        /* FORCE PYDECK IFRAME TO OBEY THE SLIDER HEIGHT */
-        [data-testid="stDeckGlJsonChart"] {{
-            height: {map_height}px !important;
-        }}
-        [data-testid="stDeckGlJsonChart"] iframe {{
-            height: {map_height}px !important;
-        }}
-        
-        /* Subtle tweak to expander padding for neatness without overlap */
-        [data-testid="stSidebar"] .streamlit-expanderHeader {{
-            padding-top: 0.5rem;
-            padding-bottom: 0.5rem;
-            font-weight: 600;
-        }}
+        .block-container {{ padding-top: 1rem !important; padding-bottom: 1rem !important; max-width: 95% !important; }}
+        h1 {{ font-size: 1.8rem !important; margin-bottom: 0 !important; padding-bottom: 0 !important; }}
+        .subtitle {{ color: #64748b; font-size: 1rem; margin-top: 0; margin-bottom: 1rem; }}
+        [data-testid="stDeckGlJsonChart"] {{ height: {map_height}px !important; }}
+        [data-testid="stDeckGlJsonChart"] iframe {{ height: {map_height}px !important; }}
+        [data-testid="stSidebar"] .streamlit-expanderHeader {{ padding-top: 0.5rem; padding-bottom: 0.5rem; font-weight: 600; }}
     </style>
 """, unsafe_allow_html=True)
 
@@ -114,28 +111,6 @@ def get_basemap_config(choice):
         uri = "data:application/json;charset=utf-8," + urllib.parse.quote(json.dumps(style))
         return "mapbox", uri
 
-with exp_map:
-    basemap_choice = st.selectbox("Basemap Style", ["OpenStreetMap", "Satellite (Esri Free)", "Dark Mode (Carto)"], index=1) 
-
-with exp_analysis:
-    res_choice = st.radio("Spatial Resolution", ["500m (National)", "250m (Local)"])
-    res_val = "500m" if "500m" in res_choice else "250m"
-    
-    st.markdown("<hr style='margin-top: 0.5rem; margin-bottom: 0.5rem; border-color: #334155;'/>", unsafe_allow_html=True)
-    
-    analysis_mode = st.radio(
-        "Analysis Mode",
-        ["🏠 Shelter Loss (Residential)", "🏭 Economic Disruption (Commercial)"],
-        label_visibility="collapsed"
-    )
-    is_economic_mode = "Economic" in analysis_mode
-
-with exp_hazard:
-    show_ssa = st.checkbox("Show SSA4 Hazard Zones (Level 3+)", value=False)
-    hazard_opacity = st.slider("Hazard Opacity (%)", min_value=0, max_value=100, value=60) if show_ssa else 0
-    alpha_val = int((hazard_opacity / 100) * 255)
-
-# Load the core dataset based on resolution choice
 gdf = load_data(res_val)
 map_layers = []
 
@@ -182,22 +157,32 @@ if gdf is not None:
         
         st.markdown(f"**Showing {len(filtered_gdf):,} Hotspots**")
 
-    with exp_map:
-        st.markdown("<hr style='margin-top: 0.5rem; margin-bottom: 0.5rem; border-color: #334155;'/>", unsafe_allow_html=True)
-        enable_3d_terrain = st.checkbox("⛰️ Enable 3D Terrain (DTM)", value=False)
+    if enable_3d_terrain:
+        TERRAIN_IMAGE = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
+        ELEVATION_DECODER = {
+            "rScaler": 256 * terrain_exaggeration, 
+            "gScaler": 1 * terrain_exaggeration, 
+            "bScaler": (1 / 256) * terrain_exaggeration, 
+            "offset": -32768 * terrain_exaggeration
+        }
+        SURFACE_IMAGE = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
         
-        if enable_3d_terrain:
-            terrain_exaggeration = st.slider("Terrain Exaggeration", min_value=1.0, max_value=3.0, value=1.5, step=0.1)
-            enable_terrain_shading = st.checkbox("☀️ 3D Shading", value=False)
+        terrain_kwargs = {
+            "elevation_decoder": ELEVATION_DECODER,
+            "texture": SURFACE_IMAGE,
+            "elevation_data": TERRAIN_IMAGE,
+        }
+        
+        if enable_terrain_shading:
+            terrain_kwargs["material"] = {
+                "ambient": 0.6,
+                "diffuse": 1.2,
+                "shininess": 0,
+                "specularColor": [0, 0, 0]
+            }
             
-            if enable_terrain_shading:
-                terrain_material = {"ambient": 0.6, "diffuse": 1.2, "shininess": 0, "specularColor": [0, 0, 0]}
-            else:
-                terrain_material = {"ambient": 1.0, "diffuse": 0.0, "shininess": 0, "specularColor": [0, 0, 0]}
-        else:
-            terrain_exaggeration = 1.0
-            enable_terrain_shading = False
-            terrain_material = False
+        terrain_layer = pdk.Layer("TerrainLayer", **terrain_kwargs)
+        map_layers.insert(0, terrain_layer)
 
     hex_layer = pdk.Layer(
         "GeoJsonLayer",
@@ -209,29 +194,10 @@ if gdf is not None:
         wireframe=True,
         get_elevation="render_height",
         elevation_scale=10, 
-        get_fill_color="fill_color", 
+        get_fill_color="fill_color",
+        parameters={"depthTest": False} if enable_3d_terrain else {}
     )
     map_layers.append(hex_layer)
-
-    if enable_3d_terrain:
-        TERRAIN_IMAGE = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
-        ELEVATION_DECODER = {
-            "rScaler": 256 * terrain_exaggeration, 
-            "gScaler": 1 * terrain_exaggeration, 
-            "bScaler": (1 / 256) * terrain_exaggeration, 
-            "offset": -32768 * terrain_exaggeration
-        }
-        SURFACE_IMAGE = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-        
-        terrain_layer = pdk.Layer(
-            "TerrainLayer",
-            data=None,  
-            elevation_decoder=ELEVATION_DECODER,
-            texture=SURFACE_IMAGE,
-            elevation_data=TERRAIN_IMAGE,
-            material=terrain_material
-        )
-        map_layers.insert(0, terrain_layer)
 
     if not filtered_gdf.empty:
         minx, miny, maxx, maxy = filtered_gdf.total_bounds
@@ -246,9 +212,6 @@ if gdf is not None:
                 local_ssa = ssa_gdf.cx[minx:maxx, miny:maxy].copy()
                 
                 if not local_ssa.empty:
-                    with exp_hazard:
-                        st.markdown("🔴 **Level 3** (> 1.5m Inundation)", unsafe_allow_html=True)
-                    
                     if 'haz' in local_ssa.columns:
                         local_ssa['haz'] = local_ssa['haz'].astype(float)
                     elif 'ssa_level' in local_ssa.columns:
@@ -265,6 +228,7 @@ if gdf is not None:
                         parameters={"depthTest": False}  
                     )
                     
+                    # Ensure it rests right above the terrain but beneath the hex towers
                     if enable_3d_terrain:
                         map_layers.insert(1, ssa_layer)
                     else:

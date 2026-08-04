@@ -56,7 +56,7 @@ st.markdown(custom_css, unsafe_allow_html=True)
 st.markdown("<h1>🌊 Morphological Foresighting Digital Twin</h1>", unsafe_allow_html=True)
 st.markdown("<p class='subtitle'>A Scenario-Based Exposure & 'Lost Stock' Analytics Platform.</p>", unsafe_allow_html=True)
 
-@st.cache_data
+@st.cache_resource
 def load_data(resolution):
     try:
         file_path = f"hex_analytics_morph_{resolution}.parquet"
@@ -68,7 +68,7 @@ def load_data(resolution):
         st.error(f"Error loading {file_path}. Make sure it is in the same folder as this script.")
         return None
 
-@st.cache_data
+@st.cache_resource
 def load_hazard_layer(file_path):
     try:
         gdf = gpd.read_parquet(file_path)
@@ -219,13 +219,28 @@ if gdf is not None:
 
     if show_ssa:
         with st.spinner("Loading Hazard Geometries..."):
-            # Load the hazard file directly without .cx cropping
             ssa_gdf = load_hazard_layer("ssa_data_subd.parquet")
             
             if ssa_gdf is not None:
+                # Restored Spatial Crop logic
+                if not filtered_gdf.empty:
+                    minx, miny, maxx, maxy = filtered_gdf.total_bounds
+                    local_ssa = ssa_gdf.cx[minx:maxx, miny:maxy].copy()
+                else:
+                    local_ssa = ssa_gdf.copy()
+                
+                # Strip out unused metadata to reduce the PyDeck JSON serialization payload
+                keep_cols = [local_ssa.geometry.name]
+                if 'haz' in local_ssa.columns:
+                    keep_cols.append('haz')
+                elif 'ssa_level' in local_ssa.columns:
+                    keep_cols.append('ssa_level')
+                
+                local_ssa = local_ssa[list(set(keep_cols))]
+                
                 ssa_layer = pdk.Layer(
                     "GeoJsonLayer",
-                    data=ssa_gdf, 
+                    data=local_ssa, 
                     pickable=False,
                     stroked=False,
                     filled=True,

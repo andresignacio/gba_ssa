@@ -68,12 +68,19 @@ def load_data(resolution):
         return None
 
 @st.cache_data
-def load_context_layer(file_path):
+def load_hazard_geojson(file_path):
     try:
         gdf = gpd.read_parquet(file_path)
         if gdf.crs is None or gdf.crs != "EPSG:4326":
             gdf = gdf.to_crs("EPSG:4326")
-        return gdf
+            
+        if 'haz' in gdf.columns:
+            gdf['haz'] = gdf['haz'].astype(float)
+        elif 'ssa_level' in gdf.columns:
+            gdf['ssa_level'] = gdf['ssa_level'].astype(float)
+            
+        # Returning the dictionary representation prevents expensive re-serialization on every render
+        return gdf.__geo_interface__
     except Exception as e:
         return None
 
@@ -137,6 +144,7 @@ if gdf is not None:
             filtered_gdf['render_height'] = filtered_gdf['lost_commercial'] * 50
             filtered_gdf['fill_color'] = filtered_gdf['lost_commercial'].apply(lambda x: [30, 136, 229, 220])
             dynamic_tooltip = "<b>Lost Commercial Nodes:</b> {lost_commercial} facilities"
+            keep_cols = ['geometry', 'lost_commercial', 'render_height', 'fill_color']
         else:
             st.markdown("""
                 <div style="background-color: #450a0a; color: #ffffff; padding: 12px; border-radius: 6px; border: 1px solid #ef4444; font-size: 14px; line-height: 1.4; margin-bottom: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
@@ -154,8 +162,13 @@ if gdf is not None:
             filtered_gdf['render_height'] = filtered_gdf['total_exposed_buildings']
             filtered_gdf['fill_color'] = filtered_gdf['pct_lost_residential'].apply(lambda x: [255, max(0, int(255 - (x * 2.5))), 0, 200])
             dynamic_tooltip = "<b>Total Exposed Buildings:</b> {total_exposed_buildings} <br/> <b>Lost Residential Stock:</b> {lost_residential} units <br/> <b>Residential Loss Rate:</b> {pct_lost_residential}%"
+            keep_cols = ['geometry', 'total_exposed_buildings', 'lost_residential', 'pct_lost_residential', 'render_height', 'fill_color']
         
         st.markdown(f"**Showing {len(filtered_gdf):,} Hotspots**")
+        
+        # Subset the dataframe to drastically reduce the payload sent to the JS rendering engine
+        keep_cols = [c for c in keep_cols if c in filtered_gdf.columns]
+        render_gdf = filtered_gdf[keep_cols]
 
     if enable_3d_terrain:
         TERRAIN_IMAGE = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
@@ -193,7 +206,7 @@ if gdf is not None:
 
     hex_layer = pdk.Layer(
         "GeoJsonLayer",
-        data=filtered_gdf,
+        data=render_gdf,
         pickable=True,
         stroked=False,
         filled=True,
@@ -206,39 +219,26 @@ if gdf is not None:
     )
     map_layers.append(hex_layer)
 
-    if not filtered_gdf.empty:
-        minx, miny, maxx, maxy = filtered_gdf.total_bounds
-    else:
-        minx, miny, maxx, maxy = 0, 0, 0, 0 
-
     if show_ssa:
         with st.spinner("Loading Hazard Geometries..."):
-            ssa_gdf = load_context_layer("ssa_data_subd.parquet")
+            ssa_geojson = load_hazard_geojson("ssa_data_subd.parquet")
             
-            if ssa_gdf is not None:
-                local_ssa = ssa_gdf.cx[minx:maxx, miny:maxy].copy()
+            if ssa_geojson is not None:
+                ssa_layer = pdk.Layer(
+                    "GeoJsonLayer",
+                    data=ssa_geojson, 
+                    pickable=False,
+                    stroked=False,
+                    filled=True,
+                    extruded=False,  
+                    get_fill_color=f"[228, 26, 28, {alpha_val}]",
+                    parameters={"depthTest": False}  
+                )
                 
-                if not local_ssa.empty:
-                    if 'haz' in local_ssa.columns:
-                        local_ssa['haz'] = local_ssa['haz'].astype(float)
-                    elif 'ssa_level' in local_ssa.columns:
-                        local_ssa['ssa_level'] = local_ssa['ssa_level'].astype(float)
-                    
-                    ssa_layer = pdk.Layer(
-                        "GeoJsonLayer",
-                        data=local_ssa, 
-                        pickable=False,
-                        stroked=False,
-                        filled=True,
-                        extruded=False,  
-                        get_fill_color=f"[228, 26, 28, {alpha_val}]",
-                        parameters={"depthTest": False}  
-                    )
-                    
-                    if enable_3d_terrain:
-                        map_layers.insert(1, ssa_layer)
-                    else:
-                        map_layers.insert(0, ssa_layer)
+                if enable_3d_terrain:
+                    map_layers.insert(1, ssa_layer)
+                else:
+                    map_layers.insert(0, ssa_layer)
             else:
                 with exp_hazard:
                     st.error("ssa_data_subd.parquet not found.")
@@ -273,8 +273,8 @@ if gdf is not None:
     col1.metric("Hotspot Hexagons", f"{len(filtered_gdf):,}")
     
     total_exposed = int(filtered_gdf['total_exposed_buildings'].sum()) if not filtered_gdf.empty else 0
-    total_res = int(filtered_gdf['lost_residential'].sum()) if not filtered_gdf.empty else 0
-    total_com = int(filtered_gdf['lost_commercial'].sum()) if not filtered_gdf.empty else 0
+    total_res = int(filtered_gdf['lost_residential'].sum()) if 'lost_residential' in filtered_gdf.columns and not filtered_gdf.empty else 0
+    total_com = int(filtered_gdf['lost_commercial'].sum()) if 'lost_commercial' in filtered_gdf.columns and not filtered_gdf.empty else 0
     
     col2.metric("Total Exposed", f"{total_exposed:,}")
     col3.metric("Lost Residential", f"{total_res:,}")

@@ -67,7 +67,8 @@ def load_data(resolution):
         st.error(f"Error loading {file_path}. Make sure it is in the same folder as this script.")
         return None
 
-@st.cache_data
+# CRITICAL FIX: Changed to cache_resource to prevent Streamlit from deep-copying the massive dictionary
+@st.cache_resource
 def load_hazard_geojson(file_path):
     try:
         gdf = gpd.read_parquet(file_path)
@@ -79,7 +80,6 @@ def load_hazard_geojson(file_path):
         elif 'ssa_level' in gdf.columns:
             gdf['ssa_level'] = gdf['ssa_level'].astype(float)
             
-        # Returning the dictionary representation prevents expensive re-serialization on every render
         return json.loads(gdf.to_json())
     except Exception as e:
         return None
@@ -166,8 +166,6 @@ if gdf is not None:
         
         st.markdown(f"**Showing {len(filtered_gdf):,} Hotspots**")
         
-        # WE NO LONGER SUBSET THE DATAFRAME - PASS IT INTACT SO GEOMETRY ISN'T LOST!
-
     if enable_3d_terrain:
         TERRAIN_IMAGE = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
         ELEVATION_DECODER = {
@@ -192,7 +190,6 @@ if gdf is not None:
                 "specularColor": [0, 0, 0]
             }
         else:
-            # FIX: Adding flat lighting so the map isn't dark when shading is off
             terrain_kwargs["material"] = {
                 "ambient": 1.0,
                 "diffuse": 0.0,
@@ -205,7 +202,7 @@ if gdf is not None:
 
     hex_layer = pdk.Layer(
         "GeoJsonLayer",
-        data=filtered_gdf, # PASSING INTACT GDF TO FIX DISAPPEARING HEXAGONS
+        data=filtered_gdf,
         pickable=True,
         stroked=False,
         filled=True,

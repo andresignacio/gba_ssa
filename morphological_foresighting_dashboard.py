@@ -80,7 +80,7 @@ def load_hazard_geojson(file_path):
             gdf['ssa_level'] = gdf['ssa_level'].astype(float)
             
         # Returning the dictionary representation prevents expensive re-serialization on every render
-        return gdf.__geo_interface__
+        return json.loads(gdf.to_json())
     except Exception as e:
         return None
 
@@ -123,6 +123,8 @@ map_layers = []
 
 if gdf is not None:
     with exp_thresholds:
+        geom_col = gdf.geometry.name
+        
         max_exp = int(gdf['total_exposed_buildings'].max()) if not gdf.empty else 100
         min_bldgs = st.slider("Minimum Exposed Buildings", min_value=0, max_value=max_exp, value=50)
         
@@ -144,7 +146,6 @@ if gdf is not None:
             filtered_gdf['render_height'] = filtered_gdf['lost_commercial'] * 50
             filtered_gdf['fill_color'] = filtered_gdf['lost_commercial'].apply(lambda x: [30, 136, 229, 220])
             dynamic_tooltip = "<b>Lost Commercial Nodes:</b> {lost_commercial} facilities"
-            keep_cols = ['geometry', 'lost_commercial', 'render_height', 'fill_color']
         else:
             st.markdown("""
                 <div style="background-color: #450a0a; color: #ffffff; padding: 12px; border-radius: 6px; border: 1px solid #ef4444; font-size: 14px; line-height: 1.4; margin-bottom: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
@@ -162,13 +163,10 @@ if gdf is not None:
             filtered_gdf['render_height'] = filtered_gdf['total_exposed_buildings']
             filtered_gdf['fill_color'] = filtered_gdf['pct_lost_residential'].apply(lambda x: [255, max(0, int(255 - (x * 2.5))), 0, 200])
             dynamic_tooltip = "<b>Total Exposed Buildings:</b> {total_exposed_buildings} <br/> <b>Lost Residential Stock:</b> {lost_residential} units <br/> <b>Residential Loss Rate:</b> {pct_lost_residential}%"
-            keep_cols = ['geometry', 'total_exposed_buildings', 'lost_residential', 'pct_lost_residential', 'render_height', 'fill_color']
         
         st.markdown(f"**Showing {len(filtered_gdf):,} Hotspots**")
         
-        # Subset the dataframe to drastically reduce the payload sent to the JS rendering engine
-        keep_cols = [c for c in keep_cols if c in filtered_gdf.columns]
-        render_gdf = filtered_gdf[keep_cols]
+        # WE NO LONGER SUBSET THE DATAFRAME - PASS IT INTACT SO GEOMETRY ISN'T LOST!
 
     if enable_3d_terrain:
         TERRAIN_IMAGE = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
@@ -194,6 +192,7 @@ if gdf is not None:
                 "specularColor": [0, 0, 0]
             }
         else:
+            # FIX: Adding flat lighting so the map isn't dark when shading is off
             terrain_kwargs["material"] = {
                 "ambient": 1.0,
                 "diffuse": 0.0,
@@ -206,7 +205,7 @@ if gdf is not None:
 
     hex_layer = pdk.Layer(
         "GeoJsonLayer",
-        data=render_gdf,
+        data=filtered_gdf, # PASSING INTACT GDF TO FIX DISAPPEARING HEXAGONS
         pickable=True,
         stroked=False,
         filled=True,

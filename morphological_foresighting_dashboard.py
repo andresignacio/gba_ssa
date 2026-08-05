@@ -128,15 +128,24 @@ with exp_analysis:
     st.markdown("<hr style='margin-top: 0.5rem; margin-bottom: 0.5rem; border-color: #334155;'/>", unsafe_allow_html=True)
     
     # --- GEOGRAPHIC FOCUS ENGINE ---
-    focus_area = st.selectbox(
-        "🗺️ Geographic Focus (Crucial for High-Res Hazards)", 
-        [
-            "National (Entire Philippines)", 
-            "Greater Metro Manila (High-Res)",
-            "Cebu / Central Visayas (High-Res)", 
-            "Davao Region (High-Res)"
-        ]
-    )
+    FOCUS_REGIONS = {
+        "National (Entire Philippines)": None,
+        "-- ISLAND GROUPS (Fast, Simplified) --": None,
+        "Luzon": [119.0, 124.5, 12.0, 19.0, 121.5, 16.0, 6],
+        "Visayas": [121.5, 126.0, 9.0, 12.5, 123.5, 10.5, 6.5],
+        "Mindanao": [121.5, 126.7, 5.2, 10.0, 124.0, 7.5, 6.5],
+        "-- KEY COASTAL REGIONS (High-Res) --": None,
+        "Greater Metro Manila": [120.70, 121.20, 14.30, 14.80, 120.98, 14.59, 10],
+        "Cebu Province": [123.30, 124.10, 9.40, 11.30, 123.90, 10.31, 9],
+        "Davao Region": [125.10, 126.30, 6.50, 7.50, 125.60, 7.10, 9],
+        "Palawan": [116.90, 120.30, 7.80, 12.40, 118.80, 10.00, 7],
+        "Panay Island (Iloilo/Capiz)": [121.80, 123.20, 10.40, 11.90, 122.50, 11.10, 8.5],
+        "Leyte & Samar": [124.20, 125.80, 9.80, 12.60, 125.00, 11.20, 8],
+        "Bicol Region": [122.20, 124.40, 12.00, 14.30, 123.30, 13.20, 8],
+        "Pangasinan & La Union": [119.70, 120.70, 15.70, 16.80, 120.20, 16.20, 9]
+    }
+    
+    focus_area = st.selectbox("🗺️ Geographic Focus", list(FOCUS_REGIONS.keys()))
     
     st.markdown("<hr style='margin-top: 0.5rem; margin-bottom: 0.5rem; border-color: #334155;'/>", unsafe_allow_html=True)
     
@@ -160,16 +169,12 @@ view_state = pdk.ViewState(longitude=121.7740, latitude=12.8797, zoom=5, pitch=4
 
 if gdf is not None and not gdf.empty:
     
-    # APPLY GEOGRAPHIC CROP BASED ON DROPDOWN (Fixed slice syntax)
-    if "Metro Manila" in focus_area:
-        gdf = gdf.cx[120.70:121.20, 14.30:14.80].copy()
-        view_state = pdk.ViewState(longitude=120.98, latitude=14.59, zoom=10, pitch=45, bearing=0)
-    elif "Cebu" in focus_area:
-        gdf = gdf.cx[123.30:124.10, 9.80:10.70].copy()
-        view_state = pdk.ViewState(longitude=123.90, latitude=10.31, zoom=9.5, pitch=45, bearing=0)
-    elif "Davao" in focus_area:
-        gdf = gdf.cx[125.10:126.20, 6.70:7.50].copy()
-        view_state = pdk.ViewState(longitude=125.60, latitude=7.19, zoom=9.5, pitch=45, bearing=0)
+    # APPLY GEOGRAPHIC CROP BASED ON DICTIONARY
+    if not focus_area.startswith("--") and focus_area != "National (Entire Philippines)":
+        bounds = FOCUS_REGIONS[focus_area]
+        # bounds mapping: [xmin, xmax, ymin, ymax, center_lon, center_lat, zoom]
+        gdf = gdf.cx[bounds[0]:bounds[1], bounds[2]:bounds[3]].copy()
+        view_state = pdk.ViewState(longitude=bounds[4], latitude=bounds[5], zoom=bounds[6], pitch=45, bearing=0)
         
     with exp_thresholds:
         max_exp = int(gdf['total_exposed_buildings'].max()) if not gdf.empty else 100

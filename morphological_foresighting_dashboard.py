@@ -193,7 +193,7 @@ if not gdf.empty:
         terrain_layer = pdk.Layer("TerrainLayer", **terrain_kwargs)
         map_layers.insert(0, terrain_layer)
 
-    # FIX: Nested DataFrame columns require 'properties.' prefix in Deck.gl accessors
+    # Reverted: Using direct column names since PyDeck automatically maps them for GeoDataFrames.
     hex_layer = pdk.Layer(
         "GeoJsonLayer",
         data=filtered_gdf,
@@ -202,9 +202,9 @@ if not gdf.empty:
         filled=True,
         extruded=True,
         wireframe=True,
-        get_elevation="properties.render_height", 
+        get_elevation="render_height", 
         elevation_scale=10, 
-        get_fill_color="properties.fill_color",
+        get_fill_color="fill_color",
         parameters={"depthTest": False} if enable_3d_terrain else {}
     )
     map_layers.append(hex_layer)

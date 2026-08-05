@@ -22,7 +22,21 @@ with exp_analysis:
 exp_hazard = st.sidebar.expander("🌊 Hazard Overlay", expanded=True)
 with exp_hazard:
     show_ssa = st.checkbox("Show SSA4 Hazard Zones (Level 3+)", value=False)
-    hazard_opacity = st.slider("Hazard Opacity (%)", min_value=0, max_value=100, value=60) if show_ssa else 0
+    if show_ssa:
+        hazard_opacity = st.slider("Hazard Opacity (%)", min_value=0, max_value=100, value=60)
+        st.markdown("<hr style='margin: 0.5rem 0; border-color: #334155;'/>", unsafe_allow_html=True)
+        st.caption("⚠️ **Performance vs. Quality:** Lower tolerance means smoother curves but slower loading.")
+        simplification_tolerance = st.slider(
+            "Geometry Simplification Tolerance", 
+            min_value=0.0001, 
+            max_value=0.0020, 
+            value=0.0005, 
+            step=0.0001, 
+            format="%.4f"
+        )
+    else:
+        hazard_opacity = 0
+        simplification_tolerance = 0.0005
     alpha_val = int((hazard_opacity / 100) * 255)
 
 exp_thresholds = st.sidebar.expander("🎚️ Risk Thresholds", expanded=True)
@@ -225,9 +239,8 @@ if not gdf.empty:
                 local_ssa = ssa_gdf.cx[minx:maxx, miny:maxy].copy()
                 
                 if not local_ssa.empty:
-                    # REFINED THRESHOLD: 0.0005 retains 4x more geometric detail than 0.002, 
-                    # smoothing out jagged edges while still preventing browser crashes.
-                    local_ssa['geometry'] = local_ssa['geometry'].simplify(tolerance=0.0005, preserve_topology=True)
+                    # IMPLEMENTED: User-controlled dynamic threshold linked directly to the UI slider
+                    local_ssa['geometry'] = local_ssa['geometry'].simplify(tolerance=simplification_tolerance, preserve_topology=True)
                     
                     if 'haz' in local_ssa.columns:
                         local_ssa['haz'] = local_ssa['haz'].astype(float)

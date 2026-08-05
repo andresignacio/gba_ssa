@@ -58,7 +58,8 @@ st.markdown(f"""
 st.markdown("<h1>🌊 Morphological Foresighting Digital Twin</h1>", unsafe_allow_html=True)
 st.markdown("<p class='subtitle'>Visualizing irreversible 'Lost Stock' displacement across the Philippine archipelago.</p>", unsafe_allow_html=True)
 
-@st.cache_data
+# Streamlit Cloud Memory Optimization: max_entries=1 prevents old data from piling up and causing OOM crashes
+@st.cache_data(max_entries=1)
 def load_data(resolution):
     try:
         file_path = f"hex_analytics_morph_{resolution}.parquet"
@@ -70,7 +71,7 @@ def load_data(resolution):
         st.error(f"Error loading {file_path}. Make sure it is in the same folder as this script.")
         return None
 
-@st.cache_data
+@st.cache_data(max_entries=1)
 def load_context_layer(file_path):
     try:
         gdf = gpd.read_parquet(file_path)
@@ -249,10 +250,14 @@ if gdf is not None:
                     with exp_hazard:
                         st.markdown("🔴 **Level 3** (> 1.5m Inundation)", unsafe_allow_html=True)
                     
+                    # Streamlit Cloud WebSocket Optimization: Only keep strictly necessary columns 
+                    # before PyDeck converts this DataFrame to a giant GeoJSON string in memory
                     if 'haz' in local_ssa.columns:
                         local_ssa['haz'] = local_ssa['haz'].astype(float)
+                        local_ssa = local_ssa[['geometry', 'haz']]
                     elif 'ssa_level' in local_ssa.columns:
                         local_ssa['ssa_level'] = local_ssa['ssa_level'].astype(float)
+                        local_ssa = local_ssa[['geometry', 'ssa_level']]
                     
                     ssa_layer = pdk.Layer(
                         "GeoJsonLayer",
@@ -281,7 +286,12 @@ if gdf is not None:
         bearing=0
     )
 
-    provider, style_uri = get_basemap_config(basemap_choice)
+    # Prevent Z-fighting rendering bugs when 3D mode is on
+    if enable_3d_terrain:
+        provider = None
+        style_uri = None
+    else:
+        provider, style_uri = get_basemap_config(basemap_choice)
 
     r = pdk.Deck(
         layers=map_layers,
@@ -292,7 +302,8 @@ if gdf is not None:
         height=map_height
     )
 
-    st.pydeck_chart(r, width='stretch')
+    # Cloud Syntax Fix: 'width' is invalid for st.pydeck_chart, use_container_width must be True
+    st.pydeck_chart(r, use_container_width=True)
     
     overflow_height = map_height - 500
     if overflow_height > 0:

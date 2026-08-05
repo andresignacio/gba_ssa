@@ -226,10 +226,14 @@ if not gdf.empty:
     )
     map_layers.append(hex_layer)
 
-    if not filtered_gdf.empty:
-        minx, miny, maxx, maxy = filtered_gdf.total_bounds
+    # CRITICAL FIX: Use the UNFILTERED 'gdf' bounds, not 'filtered_gdf'.
+    # This prevents the hazard map from getting cut off horizontally 
+    # when strict sliders hide hotspots in the northern/southern provinces.
+    if not gdf.empty:
+        minx, miny, maxx, maxy = gdf.total_bounds
     else:
-        minx, miny, maxx, maxy = 120.0, 10.0, 125.0, 15.0
+        # Fallback bounding box covering the entire Philippine archipelago
+        minx, miny, maxx, maxy = 116.0, 4.0, 127.0, 21.0
 
     if show_ssa:
         with st.spinner("Loading Hazard Geometries..."):
@@ -239,7 +243,6 @@ if not gdf.empty:
                 local_ssa = ssa_gdf.cx[minx:maxx, miny:maxy].copy()
                 
                 if not local_ssa.empty:
-                    # IMPLEMENTED: User-controlled dynamic threshold linked directly to the UI slider
                     local_ssa['geometry'] = local_ssa['geometry'].simplify(tolerance=simplification_tolerance, preserve_topology=True)
                     
                     if 'haz' in local_ssa.columns:

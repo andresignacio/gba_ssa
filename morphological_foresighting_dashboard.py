@@ -127,7 +127,7 @@ with exp_analysis:
     
     st.markdown("<hr style='margin-top: 0.5rem; margin-bottom: 0.5rem; border-color: #334155;'/>", unsafe_allow_html=True)
     
-    # --- NEW: GEOGRAPHIC FOCUS ENGINE ---
+    # --- GEOGRAPHIC FOCUS ENGINE ---
     focus_area = st.selectbox(
         "🗺️ Geographic Focus (Crucial for High-Res Hazards)", 
         [
@@ -160,15 +160,15 @@ view_state = pdk.ViewState(longitude=121.7740, latitude=12.8797, zoom=5, pitch=4
 
 if gdf is not None and not gdf.empty:
     
-    # APPLY GEOGRAPHIC CROP BASED ON DROPDOWN (Forces bounding box to shrink!)
+    # APPLY GEOGRAPHIC CROP BASED ON DROPDOWN (Fixed slice syntax)
     if "Metro Manila" in focus_area:
-        gdf = gdf.cx[120.70, 14.30, 121.20, 14.80].copy()
+        gdf = gdf.cx[120.70:121.20, 14.30:14.80].copy()
         view_state = pdk.ViewState(longitude=120.98, latitude=14.59, zoom=10, pitch=45, bearing=0)
     elif "Cebu" in focus_area:
-        gdf = gdf.cx[123.30, 9.80, 124.10, 10.70].copy()
+        gdf = gdf.cx[123.30:124.10, 9.80:10.70].copy()
         view_state = pdk.ViewState(longitude=123.90, latitude=10.31, zoom=9.5, pitch=45, bearing=0)
     elif "Davao" in focus_area:
-        gdf = gdf.cx[125.10, 6.70, 126.20, 7.50].copy()
+        gdf = gdf.cx[125.10:126.20, 6.70:7.50].copy()
         view_state = pdk.ViewState(longitude=125.60, latitude=7.19, zoom=9.5, pitch=45, bearing=0)
         
     with exp_thresholds:

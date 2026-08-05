@@ -20,7 +20,6 @@ with exp_ui:
 
 st.markdown(f"""
     <style>
-        /* Main UI compaction */
         .block-container {{
             padding-top: 1rem !important;
             padding-bottom: 1rem !important;
@@ -37,16 +36,12 @@ st.markdown(f"""
             margin-top: 0;
             margin-bottom: 1rem;
         }}
-        
-        /* FORCE PYDECK IFRAME TO OBEY THE SLIDER HEIGHT */
         [data-testid="stDeckGlJsonChart"] {{
             height: {map_height}px !important;
         }}
         [data-testid="stDeckGlJsonChart"] iframe {{
             height: {map_height}px !important;
         }}
-        
-        /* Subtle tweak to expander padding for neatness without overlap */
         [data-testid="stSidebar"] .streamlit-expanderHeader {{
             padding-top: 0.5rem;
             padding-bottom: 0.5rem;
@@ -76,9 +71,6 @@ def load_context_layer(file_path):
         gdf = gpd.read_parquet(file_path)
         if gdf.crs is None or gdf.crs != "EPSG:4326":
             gdf = gdf.to_crs("EPSG:4326")
-            
-        # We removed the global simplification here so we have access 
-        # to the raw, high-res geometries later when we need them!
         return gdf
     except Exception as e:
         return None
@@ -135,6 +127,19 @@ with exp_analysis:
     
     st.markdown("<hr style='margin-top: 0.5rem; margin-bottom: 0.5rem; border-color: #334155;'/>", unsafe_allow_html=True)
     
+    # --- NEW: GEOGRAPHIC FOCUS ENGINE ---
+    focus_area = st.selectbox(
+        "🗺️ Geographic Focus (Crucial for High-Res Hazards)", 
+        [
+            "National (Entire Philippines)", 
+            "Greater Metro Manila (High-Res)",
+            "Cebu / Central Visayas (High-Res)", 
+            "Davao Region (High-Res)"
+        ]
+    )
+    
+    st.markdown("<hr style='margin-top: 0.5rem; margin-bottom: 0.5rem; border-color: #334155;'/>", unsafe_allow_html=True)
+    
     analysis_mode = st.radio(
         "Analysis Mode",
         ["🏠 Shelter Loss (Residential)", "🏭 Economic Disruption (Commercial)"],
@@ -150,7 +155,22 @@ with exp_hazard:
 gdf = load_data(res_val)
 map_layers = []
 
-if gdf is not None:
+# Default National View State
+view_state = pdk.ViewState(longitude=121.7740, latitude=12.8797, zoom=5, pitch=45, bearing=0)
+
+if gdf is not None and not gdf.empty:
+    
+    # APPLY GEOGRAPHIC CROP BASED ON DROPDOWN (Forces bounding box to shrink!)
+    if "Metro Manila" in focus_area:
+        gdf = gdf.cx[120.70, 14.30, 121.20, 14.80].copy()
+        view_state = pdk.ViewState(longitude=120.98, latitude=14.59, zoom=10, pitch=45, bearing=0)
+    elif "Cebu" in focus_area:
+        gdf = gdf.cx[123.30, 9.80, 124.10, 10.70].copy()
+        view_state = pdk.ViewState(longitude=123.90, latitude=10.31, zoom=9.5, pitch=45, bearing=0)
+    elif "Davao" in focus_area:
+        gdf = gdf.cx[125.10, 6.70, 126.20, 7.50].copy()
+        view_state = pdk.ViewState(longitude=125.60, latitude=7.19, zoom=9.5, pitch=45, bearing=0)
+        
     with exp_thresholds:
         max_exp = int(gdf['total_exposed_buildings'].max()) if not gdf.empty else 100
         min_bldgs = st.slider("Minimum Exposed Buildings", min_value=0, max_value=max_exp, value=50)
@@ -247,6 +267,7 @@ if gdf is not None:
         terrain_layer = pdk.Layer("TerrainLayer", data=None, **terrain_kwargs)
         map_layers.insert(0, terrain_layer)
 
+    # Establish bounding box from whatever spatial area is currently active
     if not filtered_gdf.empty:
         minx, miny, maxx, maxy = filtered_gdf.total_bounds
     else:
@@ -263,25 +284,21 @@ if gdf is not None:
                     with exp_hazard:
                         st.markdown("🔴 **Level 3** (> 1.5m Inundation)", unsafe_allow_html=True)
                     
-                    # --- SMART DYNAMIC SIMPLIFICATION ---
-                    # Calculate the area of the current bounding box (in decimal degrees)
                     bbox_area = (maxx - minx) * (maxy - miny)
                     
-                    # Apply varying levels of simplification based on how big the data extent is.
-                    # If bounding box is small (zoomed in via filters), no simplification is applied!
-                    if bbox_area > 20:          # National Level
-                        tol = 0.001 
-                    elif bbox_area > 5:         # Regional Level
-                        tol = 0.0005
-                    elif bbox_area > 0.5:       # Provincial Level
-                        tol = 0.0001
-                    else:                       # City/Barangay Level
-                        tol = 0.0               # Perfect resolution
+                    # Refined tolerance thresholds based on the newly cropped bounding boxes
+                    if bbox_area > 15:          # National Level (~Entire Country)
+                        tol = 0.002 
+                    elif bbox_area > 5:         # Macro-Regional Level
+                        tol = 0.001
+                    elif bbox_area > 0.5:       # Regional/Provincial Level
+                        tol = 0.0002
+                    else:                       # City/Local Level (Metro Manila, Cebu, Davao perfectly trigger this!)
+                        tol = 0.0               
                         
                     if tol > 0:
                         local_ssa['geometry'] = local_ssa['geometry'].simplify(tolerance=tol, preserve_topology=True)
                     
-                    # Strip out excess metadata for lighter JSON serialization
                     if 'haz' in local_ssa.columns:
                         local_ssa['haz'] = local_ssa['haz'].astype(float)
                         local_ssa = local_ssa[['geometry', 'haz']]
@@ -307,14 +324,6 @@ if gdf is not None:
             else:
                 with exp_hazard:
                     st.error("ssa_data_subd.parquet not found.")
-
-    view_state = pdk.ViewState(
-        longitude=121.7740, 
-        latitude=12.8797,
-        zoom=5,
-        pitch=45, 
-        bearing=0
-    )
 
     if enable_3d_terrain:
         provider, style_uri = get_blank_basemap()

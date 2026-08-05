@@ -35,8 +35,13 @@ with exp_map:
     
     enable_3d_terrain = st.checkbox("⛰️ Enable 3D Terrain (DTM)", value=False)
     if enable_3d_terrain:
+        # User requested exaggeration slider dynamically controls the DTM
         terrain_exaggeration = st.slider("Terrain Exaggeration", min_value=1.0, max_value=3.0, value=1.5, step=0.1)
         enable_terrain_shading = st.checkbox("☀️ 3D Shading", value=False)
+    else:
+        # Default fallback values when 3D is disabled
+        terrain_exaggeration = 1.0
+        enable_terrain_shading = False
         
     st.markdown("<hr style='margin: 0.5rem 0; border-color: #334155;'/>", unsafe_allow_html=True)
     map_height = st.slider("Map Canvas Height (px)", min_value=500, max_value=1200, value=700, step=50)
@@ -64,8 +69,8 @@ def load_data(resolution):
             gdf = gdf.to_crs("EPSG:4326")
         return gdf
     except Exception as e:
-        st.error(f"Error loading {file_path}. Make sure it is in the same folder as this script.")
-        return None
+        st.error(f"Error loading {file_path}. Make sure it is in the same folder as this script. ({e})")
+        return gpd.GeoDataFrame() # Return empty dataframe to prevent breaking failures
 
 @st.cache_data
 def load_context_layer(file_path):
@@ -75,7 +80,7 @@ def load_context_layer(file_path):
             gdf = gdf.to_crs("EPSG:4326")
         return gdf
     except Exception as e:
-        return None
+        return gpd.GeoDataFrame()
 
 def get_basemap_config(choice):
     if choice == "Dark Mode (Carto)":
@@ -113,8 +118,9 @@ def get_basemap_config(choice):
 
 gdf = load_data(res_val)
 map_layers = []
+dynamic_tooltip = ""
 
-if gdf is not None:
+if not gdf.empty:
     with exp_thresholds:
         max_exp = int(gdf['total_exposed_buildings'].max()) if not gdf.empty else 100
         min_bldgs = st.slider("Minimum Exposed Buildings", min_value=0, max_value=max_exp, value=50)
@@ -159,12 +165,15 @@ if gdf is not None:
 
     if enable_3d_terrain:
         TERRAIN_IMAGE = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
+        
+        # Scaling mathematical decoders effectively multiplies elevation logic dynamically
         ELEVATION_DECODER = {
-            "rScaler": 256 * terrain_exaggeration, 
-            "gScaler": 1 * terrain_exaggeration, 
-            "bScaler": (1 / 256) * terrain_exaggeration, 
+            "rScaler": 256 * terrain_exaggeration,
+            "gScaler": 1 * terrain_exaggeration,
+            "bScaler": (1 / 256) * terrain_exaggeration,
             "offset": -32768 * terrain_exaggeration
         }
+        
         SURFACE_IMAGE = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
         
         terrain_kwargs = {
@@ -184,6 +193,7 @@ if gdf is not None:
         terrain_layer = pdk.Layer("TerrainLayer", **terrain_kwargs)
         map_layers.insert(0, terrain_layer)
 
+    # FIX: Nested DataFrame columns require 'properties.' prefix in Deck.gl accessors
     hex_layer = pdk.Layer(
         "GeoJsonLayer",
         data=filtered_gdf,
@@ -192,9 +202,9 @@ if gdf is not None:
         filled=True,
         extruded=True,
         wireframe=True,
-        get_elevation="render_height",
+        get_elevation="properties.render_height", 
         elevation_scale=10, 
-        get_fill_color="fill_color",
+        get_fill_color="properties.fill_color",
         parameters={"depthTest": False} if enable_3d_terrain else {}
     )
     map_layers.append(hex_layer)
@@ -202,13 +212,13 @@ if gdf is not None:
     if not filtered_gdf.empty:
         minx, miny, maxx, maxy = filtered_gdf.total_bounds
     else:
-        minx, miny, maxx, maxy = 0, 0, 0, 0 
+        minx, miny, maxx, maxy = 120.0, 10.0, 125.0, 15.0 # Fallback bounds to avoid crashing
 
     if show_ssa:
         with st.spinner("Loading Hazard Geometries..."):
             ssa_gdf = load_context_layer("ssa_data_subd.parquet")
             
-            if ssa_gdf is not None:
+            if not ssa_gdf.empty:
                 local_ssa = ssa_gdf.cx[minx:maxx, miny:maxy].copy()
                 
                 if not local_ssa.empty:
@@ -225,17 +235,16 @@ if gdf is not None:
                         filled=True,
                         extruded=False,  
                         get_fill_color=f"[228, 26, 28, {alpha_val}]",
-                        parameters={"depthTest": False}  
+                        parameters={"depthTest": False} if enable_3d_terrain else {}  
                     )
                     
-                    # Ensure it rests right above the terrain but beneath the hex towers
                     if enable_3d_terrain:
                         map_layers.insert(1, ssa_layer)
                     else:
                         map_layers.insert(0, ssa_layer)
             else:
                 with exp_hazard:
-                    st.error("ssa_data_subd.parquet not found.")
+                    st.warning("ssa_data_subd.parquet not found or empty.")
 
     view_state = pdk.ViewState(
         longitude=121.7740, 
@@ -245,18 +254,25 @@ if gdf is not None:
         bearing=0
     )
 
-    provider, style_uri = get_basemap_config(basemap_choice)
+    # CRITICAL FIX: Disable the 2D default mapbox/carto basemap when terrain is enabled.
+    # Otherwise, it attempts to render over/z-fight with the new 3D surface
+    if enable_3d_terrain:
+        provider = None
+        style_uri = None
+    else:
+        provider, style_uri = get_basemap_config(basemap_choice)
 
     r = pdk.Deck(
         layers=map_layers,
         initial_view_state=view_state,
         map_style=style_uri,
         map_provider=provider,
-        tooltip={"html": dynamic_tooltip},
+        tooltip={"html": dynamic_tooltip} if dynamic_tooltip else True,
         height=map_height
     )
 
-    st.pydeck_chart(r, width='stretch')
+    # FIX: 'width' is invalid syntax for st.pydeck_chart. Replaced with 'use_container_width'
+    st.pydeck_chart(r, use_container_width=True)
     
     overflow_height = map_height - 500
     if overflow_height > 0:

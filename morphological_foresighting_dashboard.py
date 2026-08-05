@@ -10,48 +10,53 @@ st.set_page_config(layout="wide", page_title="Philippine Coastal Vulnerability")
 st.sidebar.markdown("### 🎛️ Dashboard Controls")
 
 exp_analysis = st.sidebar.expander("🎯 Primary Analysis", expanded=True)
-exp_hazard = st.sidebar.expander("🌊 Hazard Overlay", expanded=True)
-exp_thresholds = st.sidebar.expander("🎚️ Risk Thresholds", expanded=True)
-exp_map = st.sidebar.expander("🗺️ Map Settings", expanded=False)
-exp_ui = st.sidebar.expander("⚙️ UI Settings", expanded=False)
+with exp_analysis:
+    analysis_mode = st.radio("Analysis Mode", ["🏠 Shelter Loss (Residential)", "🏭 Economic Disruption (Commercial)"], label_visibility="collapsed")
+    is_economic_mode = "Economic" in analysis_mode
+    
+    st.markdown("<hr style='margin: 0.5rem 0; border-color: #334155;'/>", unsafe_allow_html=True)
+    
+    res_choice = st.radio("Spatial Resolution", ["500m (National)", "250m (Local)"])
+    res_val = "500m" if "500m" in res_choice else "250m"
 
-with exp_ui:
+exp_hazard = st.sidebar.expander("🌊 Hazard Overlay", expanded=True)
+with exp_hazard:
+    show_ssa = st.checkbox("Show SSA4 Hazard Zones (Level 3+)", value=False)
+    hazard_opacity = st.slider("Hazard Opacity (%)", min_value=0, max_value=100, value=60) if show_ssa else 0
+    alpha_val = int((hazard_opacity / 100) * 255)
+
+exp_thresholds = st.sidebar.expander("🎚️ Risk Thresholds", expanded=True)
+
+exp_map = st.sidebar.expander("🗺️ Map Settings", expanded=False)
+with exp_map:
+    basemap_choice = st.selectbox("Basemap Style", ["OpenStreetMap", "Satellite (Esri Free)", "Dark Mode (Carto)"], index=1)
+    
+    st.markdown("<hr style='margin: 0.5rem 0; border-color: #334155;'/>", unsafe_allow_html=True)
+    
+    enable_3d_terrain = st.checkbox("⛰️ Enable 3D Terrain (DTM)", value=False)
+    if enable_3d_terrain:
+        terrain_exaggeration = st.slider("Terrain Exaggeration", min_value=1.0, max_value=3.0, value=1.5, step=0.1)
+        enable_terrain_shading = st.checkbox("☀️ 3D Shading", value=False)
+    else:
+        terrain_exaggeration = 1.0
+        enable_terrain_shading = False
+        
+    st.markdown("<hr style='margin: 0.5rem 0; border-color: #334155;'/>", unsafe_allow_html=True)
     map_height = st.slider("Map Canvas Height (px)", min_value=500, max_value=1200, value=700, step=50)
 
 st.markdown(f"""
     <style>
-        .block-container {{
-            padding-top: 1rem !important;
-            padding-bottom: 1rem !important;
-            max-width: 95% !important;
-        }}
-        h1 {{
-            font-size: 1.8rem !important;
-            margin-bottom: 0 !important;
-            padding-bottom: 0 !important;
-        }}
-        .subtitle {{
-            color: #64748b;
-            font-size: 1rem;
-            margin-top: 0;
-            margin-bottom: 1rem;
-        }}
-        [data-testid="stDeckGlJsonChart"] {{
-            height: {map_height}px !important;
-        }}
-        [data-testid="stDeckGlJsonChart"] iframe {{
-            height: {map_height}px !important;
-        }}
-        [data-testid="stSidebar"] .streamlit-expanderHeader {{
-            padding-top: 0.5rem;
-            padding-bottom: 0.5rem;
-            font-weight: 600;
-        }}
+        .block-container {{ padding-top: 1rem !important; padding-bottom: 1rem !important; max-width: 95% !important; }}
+        h1 {{ font-size: 1.8rem !important; margin-bottom: 0 !important; padding-bottom: 0 !important; }}
+        .subtitle {{ color: #64748b; font-size: 1rem; margin-top: 0; margin-bottom: 1rem; }}
+        [data-testid="stDeckGlJsonChart"] {{ height: {map_height}px !important; }}
+        [data-testid="stDeckGlJsonChart"] iframe {{ height: {map_height}px !important; }}
+        [data-testid="stSidebar"] .streamlit-expanderHeader {{ padding-top: 0.5rem; padding-bottom: 0.5rem; font-weight: 600; }}
     </style>
 """, unsafe_allow_html=True)
 
 st.markdown("<h1>🌊 Morphological Foresighting Digital Twin</h1>", unsafe_allow_html=True)
-st.markdown("<p class='subtitle'>Visualizing irreversible 'Lost Stock' displacement across the Philippine archipelago.</p>", unsafe_allow_html=True)
+st.markdown("<p class='subtitle'>A Scenario-Based Exposure & 'Lost Stock' Analytics Platform.</p>", unsafe_allow_html=True)
 
 @st.cache_data(max_entries=1)
 def load_data(resolution):
@@ -62,8 +67,8 @@ def load_data(resolution):
             gdf = gdf.to_crs("EPSG:4326")
         return gdf
     except Exception as e:
-        st.error(f"Error loading {file_path}. Make sure it is in the same folder as this script.")
-        return None
+        st.error(f"Error loading {file_path}. Make sure it is in the same folder as this script. ({e})")
+        return gpd.GeoDataFrame()
 
 @st.cache_data(max_entries=1)
 def load_context_layer(file_path):
@@ -73,7 +78,7 @@ def load_context_layer(file_path):
             gdf = gdf.to_crs("EPSG:4326")
         return gdf
     except Exception as e:
-        return None
+        return gpd.GeoDataFrame()
 
 def get_basemap_config(choice):
     if choice == "Dark Mode (Carto)":
@@ -118,64 +123,11 @@ def get_blank_basemap():
     uri = "data:application/json;charset=utf-8," + urllib.parse.quote(json.dumps(style))
     return "mapbox", uri
 
-with exp_map:
-    basemap_choice = st.selectbox("Basemap Style", ["OpenStreetMap", "Satellite (Esri Free)", "Dark Mode (Carto)"], index=1) 
-
-with exp_analysis:
-    res_choice = st.radio("Spatial Resolution", ["500m (National)", "250m (Local)"])
-    res_val = "500m" if "500m" in res_choice else "250m"
-    
-    st.markdown("<hr style='margin-top: 0.5rem; margin-bottom: 0.5rem; border-color: #334155;'/>", unsafe_allow_html=True)
-    
-    # --- GEOGRAPHIC FOCUS ENGINE ---
-    FOCUS_REGIONS = {
-        "National (Entire Philippines)": None,
-        "-- ISLAND GROUPS (Fast, Simplified) --": None,
-        "Luzon": [119.0, 124.5, 12.0, 19.0, 121.5, 16.0, 6],
-        "Visayas": [121.5, 126.0, 9.0, 12.5, 123.5, 10.5, 6.5],
-        "Mindanao": [121.5, 126.7, 5.2, 10.0, 124.0, 7.5, 6.5],
-        "-- KEY COASTAL REGIONS (High-Res) --": None,
-        "Greater Metro Manila": [120.70, 121.20, 14.30, 14.80, 120.98, 14.59, 10],
-        "Cebu Province": [123.30, 124.10, 9.40, 11.30, 123.90, 10.31, 9],
-        "Davao Region": [125.10, 126.30, 6.50, 7.50, 125.60, 7.10, 9],
-        "Palawan": [116.90, 120.30, 7.80, 12.40, 118.80, 10.00, 7],
-        "Panay Island (Iloilo/Capiz)": [121.80, 123.20, 10.40, 11.90, 122.50, 11.10, 8.5],
-        "Leyte & Samar": [124.20, 125.80, 9.80, 12.60, 125.00, 11.20, 8],
-        "Bicol Region": [122.20, 124.40, 12.00, 14.30, 123.30, 13.20, 8],
-        "Pangasinan & La Union": [119.70, 120.70, 15.70, 16.80, 120.20, 16.20, 9]
-    }
-    
-    focus_area = st.selectbox("🗺️ Geographic Focus", list(FOCUS_REGIONS.keys()))
-    
-    st.markdown("<hr style='margin-top: 0.5rem; margin-bottom: 0.5rem; border-color: #334155;'/>", unsafe_allow_html=True)
-    
-    analysis_mode = st.radio(
-        "Analysis Mode",
-        ["🏠 Shelter Loss (Residential)", "🏭 Economic Disruption (Commercial)"],
-        label_visibility="collapsed"
-    )
-    is_economic_mode = "Economic" in analysis_mode
-
-with exp_hazard:
-    show_ssa = st.checkbox("Show SSA4 Hazard Zones (Level 3+)", value=False)
-    hazard_opacity = st.slider("Hazard Opacity (%)", min_value=0, max_value=100, value=60) if show_ssa else 0
-    alpha_val = int((hazard_opacity / 100) * 255)
-
 gdf = load_data(res_val)
 map_layers = []
+dynamic_tooltip = ""
 
-# Default National View State
-view_state = pdk.ViewState(longitude=121.7740, latitude=12.8797, zoom=5, pitch=45, bearing=0)
-
-if gdf is not None and not gdf.empty:
-    
-    # APPLY GEOGRAPHIC CROP BASED ON DICTIONARY
-    if not focus_area.startswith("--") and focus_area != "National (Entire Philippines)":
-        bounds = FOCUS_REGIONS[focus_area]
-        # bounds mapping: [xmin, xmax, ymin, ymax, center_lon, center_lat, zoom]
-        gdf = gdf.cx[bounds[0]:bounds[1], bounds[2]:bounds[3]].copy()
-        view_state = pdk.ViewState(longitude=bounds[4], latitude=bounds[5], zoom=bounds[6], pitch=45, bearing=0)
-        
+if not gdf.empty:
     with exp_thresholds:
         max_exp = int(gdf['total_exposed_buildings'].max()) if not gdf.empty else 100
         min_bldgs = st.slider("Minimum Exposed Buildings", min_value=0, max_value=max_exp, value=50)
@@ -218,22 +170,32 @@ if gdf is not None and not gdf.empty:
         
         st.markdown(f"**Showing {len(filtered_gdf):,} Hotspots**")
 
-    with exp_map:
-        st.markdown("<hr style='margin-top: 0.5rem; margin-bottom: 0.5rem; border-color: #334155;'/>", unsafe_allow_html=True)
-        enable_3d_terrain = st.checkbox("⛰️ Enable 3D Terrain (DTM)", value=False)
+    if enable_3d_terrain:
+        TERRAIN_IMAGE = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
+        ELEVATION_DECODER = {
+            "rScaler": 256 * terrain_exaggeration,
+            "gScaler": 1 * terrain_exaggeration,
+            "bScaler": (1 / 256) * terrain_exaggeration,
+            "offset": -32768 * terrain_exaggeration
+        }
+        SURFACE_IMAGE = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
         
-        if enable_3d_terrain:
-            terrain_exaggeration = st.slider("Terrain Exaggeration", min_value=1.0, max_value=3.0, value=1.5, step=0.1)
-            enable_terrain_shading = st.checkbox("☀️ 3D Shading", value=False)
+        terrain_kwargs = {
+            "elevation_decoder": ELEVATION_DECODER,
+            "texture": SURFACE_IMAGE,
+            "elevation_data": TERRAIN_IMAGE,
+        }
+        
+        if enable_terrain_shading:
+            terrain_kwargs["material"] = {
+                "ambient": 0.6,
+                "diffuse": 1.2,
+                "shininess": 0,
+                "specularColor": [0, 0, 0]
+            }
             
-            if enable_terrain_shading:
-                terrain_material = {"ambient": 0.6, "diffuse": 1.2, "shininess": 0, "specularColor": [0, 0, 0]}
-            else:
-                terrain_material = {"ambient": 1.0, "diffuse": 0.0, "shininess": 0, "specularColor": [0, 0, 0]}
-        else:
-            terrain_exaggeration = 1.0
-            enable_terrain_shading = False
-            terrain_material = False
+        terrain_layer = pdk.Layer("TerrainLayer", **terrain_kwargs)
+        map_layers.insert(0, terrain_layer)
 
     hex_layer = pdk.Layer(
         "GeoJsonLayer",
@@ -243,66 +205,29 @@ if gdf is not None and not gdf.empty:
         filled=True,
         extruded=True,
         wireframe=True,
-        get_elevation="render_height",
+        get_elevation="render_height", 
         elevation_scale=10, 
         get_fill_color="fill_color",
         parameters={"depthTest": False} if enable_3d_terrain else {}
     )
     map_layers.append(hex_layer)
 
-    if enable_3d_terrain:
-        TERRAIN_IMAGE = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
-        ELEVATION_DECODER = {
-            "rScaler": 256 * terrain_exaggeration, 
-            "gScaler": 1 * terrain_exaggeration, 
-            "bScaler": (1 / 256) * terrain_exaggeration, 
-            "offset": -32768 * terrain_exaggeration
-        }
-        SURFACE_IMAGE = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-        
-        terrain_kwargs = {
-            "elevation_decoder": ELEVATION_DECODER,
-            "texture": SURFACE_IMAGE,
-            "elevation_data": TERRAIN_IMAGE
-        }
-        
-        if enable_terrain_shading:
-            terrain_kwargs["material"] = terrain_material
-            
-        terrain_layer = pdk.Layer("TerrainLayer", data=None, **terrain_kwargs)
-        map_layers.insert(0, terrain_layer)
-
-    # Establish bounding box from whatever spatial area is currently active
     if not filtered_gdf.empty:
         minx, miny, maxx, maxy = filtered_gdf.total_bounds
     else:
-        minx, miny, maxx, maxy = 0, 0, 0, 0 
+        minx, miny, maxx, maxy = 120.0, 10.0, 125.0, 15.0
 
     if show_ssa:
-        with st.spinner("Rendering Hazard Geometries..."):
+        with st.spinner("Loading Hazard Geometries..."):
             ssa_gdf = load_context_layer("ssa_data_subd.parquet")
             
-            if ssa_gdf is not None:
+            if not ssa_gdf.empty:
                 local_ssa = ssa_gdf.cx[minx:maxx, miny:maxy].copy()
                 
                 if not local_ssa.empty:
-                    with exp_hazard:
-                        st.markdown("🔴 **Level 3** (> 1.5m Inundation)", unsafe_allow_html=True)
-                    
-                    bbox_area = (maxx - minx) * (maxy - miny)
-                    
-                    # Refined tolerance thresholds based on the newly cropped bounding boxes
-                    if bbox_area > 15:          # National Level (~Entire Country)
-                        tol = 0.002 
-                    elif bbox_area > 5:         # Macro-Regional Level
-                        tol = 0.001
-                    elif bbox_area > 0.5:       # Regional/Provincial Level
-                        tol = 0.0002
-                    else:                       # City/Local Level (Metro Manila, Cebu, Davao perfectly trigger this!)
-                        tol = 0.0               
-                        
-                    if tol > 0:
-                        local_ssa['geometry'] = local_ssa['geometry'].simplify(tolerance=tol, preserve_topology=True)
+                    # REFINED THRESHOLD: 0.0005 retains 4x more geometric detail than 0.002, 
+                    # smoothing out jagged edges while still preventing browser crashes.
+                    local_ssa['geometry'] = local_ssa['geometry'].simplify(tolerance=0.0005, preserve_topology=True)
                     
                     if 'haz' in local_ssa.columns:
                         local_ssa['haz'] = local_ssa['haz'].astype(float)
@@ -319,7 +244,7 @@ if gdf is not None and not gdf.empty:
                         filled=True,
                         extruded=False,  
                         get_fill_color=f"[228, 26, 28, {alpha_val}]",
-                        parameters={"depthTest": False} if enable_3d_terrain else {}
+                        parameters={"depthTest": False} if enable_3d_terrain else {}  
                     )
                     
                     if enable_3d_terrain:
@@ -328,7 +253,15 @@ if gdf is not None and not gdf.empty:
                         map_layers.insert(0, ssa_layer)
             else:
                 with exp_hazard:
-                    st.error("ssa_data_subd.parquet not found.")
+                    st.warning("ssa_data_subd.parquet not found or empty.")
+
+    view_state = pdk.ViewState(
+        longitude=121.7740, 
+        latitude=12.8797,
+        zoom=5,
+        pitch=45, 
+        bearing=0
+    )
 
     if enable_3d_terrain:
         provider, style_uri = get_blank_basemap()
@@ -340,7 +273,7 @@ if gdf is not None and not gdf.empty:
         initial_view_state=view_state,
         map_style=style_uri,
         map_provider=provider,
-        tooltip={"html": dynamic_tooltip},
+        tooltip={"html": dynamic_tooltip} if dynamic_tooltip else True,
         height=map_height
     )
 

@@ -58,7 +58,6 @@ st.markdown(f"""
 st.markdown("<h1>🌊 Morphological Foresighting Digital Twin</h1>", unsafe_allow_html=True)
 st.markdown("<p class='subtitle'>Visualizing irreversible 'Lost Stock' displacement across the Philippine archipelago.</p>", unsafe_allow_html=True)
 
-# Streamlit Cloud Memory Optimization: max_entries=1 prevents old data from piling up and causing OOM crashes
 @st.cache_data(max_entries=1)
 def load_data(resolution):
     try:
@@ -77,6 +76,11 @@ def load_context_layer(file_path):
         gdf = gpd.read_parquet(file_path)
         if gdf.crs is None or gdf.crs != "EPSG:4326":
             gdf = gdf.to_crs("EPSG:4326")
+            
+        # CRITICAL FIX: Simplify the geometry once when the app wakes up.
+        # This reduces the vertex count so the browser's JS engine doesn't lock up 
+        # trying to triangulate complex coastal polygons when the user checks the box.
+        gdf['geometry'] = gdf['geometry'].simplify(tolerance=0.0005, preserve_topology=True)
         return gdf
     except Exception as e:
         return None
@@ -115,6 +119,17 @@ def get_basemap_config(choice):
         uri = "data:application/json;charset=utf-8," + urllib.parse.quote(json.dumps(style))
         return "mapbox", uri
 
+def get_blank_basemap():
+    # An explicitly transparent map style to guarantee Streamlit doesn't render 
+    # a default mapbox street map underneath our 3D terrain.
+    style = {
+        "version": 8,
+        "sources": {},
+        "layers": [{"id": "background", "type": "background", "paint": {"background-color": "rgba(0,0,0,0)"}}]
+    }
+    uri = "data:application/json;charset=utf-8," + urllib.parse.quote(json.dumps(style))
+    return "mapbox", uri
+
 with exp_map:
     basemap_choice = st.selectbox("Basemap Style", ["OpenStreetMap", "Satellite (Esri Free)", "Dark Mode (Carto)"], index=1) 
 
@@ -136,7 +151,6 @@ with exp_hazard:
     hazard_opacity = st.slider("Hazard Opacity (%)", min_value=0, max_value=100, value=60) if show_ssa else 0
     alpha_val = int((hazard_opacity / 100) * 255)
 
-# Load the core dataset based on resolution choice
 gdf = load_data(res_val)
 map_layers = []
 
@@ -210,7 +224,8 @@ if gdf is not None:
         wireframe=True,
         get_elevation="render_height",
         elevation_scale=10, 
-        get_fill_color="fill_color", 
+        get_fill_color="fill_color",
+        parameters={"depthTest": False} if enable_3d_terrain else {}
     )
     map_layers.append(hex_layer)
 
@@ -224,14 +239,16 @@ if gdf is not None:
         }
         SURFACE_IMAGE = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
         
-        terrain_layer = pdk.Layer(
-            "TerrainLayer",
-            data=None,  
-            elevation_decoder=ELEVATION_DECODER,
-            texture=SURFACE_IMAGE,
-            elevation_data=TERRAIN_IMAGE,
-            material=terrain_material
-        )
+        terrain_kwargs = {
+            "elevation_decoder": ELEVATION_DECODER,
+            "texture": SURFACE_IMAGE,
+            "elevation_data": TERRAIN_IMAGE
+        }
+        
+        if enable_terrain_shading:
+            terrain_kwargs["material"] = terrain_material
+            
+        terrain_layer = pdk.Layer("TerrainLayer", data=None, **terrain_kwargs)
         map_layers.insert(0, terrain_layer)
 
     if not filtered_gdf.empty:
@@ -240,7 +257,7 @@ if gdf is not None:
         minx, miny, maxx, maxy = 0, 0, 0, 0 
 
     if show_ssa:
-        with st.spinner("Loading Hazard Geometries..."):
+        with st.spinner("Rendering Hazard Geometries..."):
             ssa_gdf = load_context_layer("ssa_data_subd.parquet")
             
             if ssa_gdf is not None:
@@ -250,8 +267,7 @@ if gdf is not None:
                     with exp_hazard:
                         st.markdown("🔴 **Level 3** (> 1.5m Inundation)", unsafe_allow_html=True)
                     
-                    # Streamlit Cloud WebSocket Optimization: Only keep strictly necessary columns 
-                    # before PyDeck converts this DataFrame to a giant GeoJSON string in memory
+                    # Strip out excess metadata for lighter JSON serialization
                     if 'haz' in local_ssa.columns:
                         local_ssa['haz'] = local_ssa['haz'].astype(float)
                         local_ssa = local_ssa[['geometry', 'haz']]
@@ -267,7 +283,7 @@ if gdf is not None:
                         filled=True,
                         extruded=False,  
                         get_fill_color=f"[228, 26, 28, {alpha_val}]",
-                        parameters={"depthTest": False}  
+                        parameters={"depthTest": False} if enable_3d_terrain else {}
                     )
                     
                     if enable_3d_terrain:
@@ -286,10 +302,8 @@ if gdf is not None:
         bearing=0
     )
 
-    # Prevent Z-fighting rendering bugs when 3D mode is on
     if enable_3d_terrain:
-        provider = None
-        style_uri = None
+        provider, style_uri = get_blank_basemap()
     else:
         provider, style_uri = get_basemap_config(basemap_choice)
 
@@ -302,7 +316,7 @@ if gdf is not None:
         height=map_height
     )
 
-    # Cloud Syntax Fix: 'width' is invalid for st.pydeck_chart, use_container_width must be True
+    # st.pydeck_chart handles container scaling correctly without width='stretch' errors
     st.pydeck_chart(r, use_container_width=True)
     
     overflow_height = map_height - 500

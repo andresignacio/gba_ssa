@@ -35,11 +35,9 @@ with exp_map:
     
     enable_3d_terrain = st.checkbox("⛰️ Enable 3D Terrain (DTM)", value=False)
     if enable_3d_terrain:
-        # User requested exaggeration slider dynamically controls the DTM
         terrain_exaggeration = st.slider("Terrain Exaggeration", min_value=1.0, max_value=3.0, value=1.5, step=0.1)
         enable_terrain_shading = st.checkbox("☀️ 3D Shading", value=False)
     else:
-        # Default fallback values when 3D is disabled
         terrain_exaggeration = 1.0
         enable_terrain_shading = False
         
@@ -70,7 +68,7 @@ def load_data(resolution):
         return gdf
     except Exception as e:
         st.error(f"Error loading {file_path}. Make sure it is in the same folder as this script. ({e})")
-        return gpd.GeoDataFrame() # Return empty dataframe to prevent breaking failures
+        return gpd.GeoDataFrame()
 
 @st.cache_data
 def load_context_layer(file_path):
@@ -83,22 +81,38 @@ def load_context_layer(file_path):
         return gpd.GeoDataFrame()
 
 def get_basemap_config(choice):
-    if choice == 'Dark Mode (Carto)':
-        return 'carto', 'dark', None
-    elif choice == 'OpenStreetMap':
-        layer = pdk.Layer(
-            'TileLayer',
-            data='https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-            pickable=False
-        )
-        return None, None, layer
-    elif choice == 'Satellite (Esri Free)':
-        layer = pdk.Layer(
-            'TileLayer',
-            data='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-            pickable=False
-        )
-        return None, None, layer
+    if choice == "Dark Mode (Carto)":
+        return "carto", "dark"
+    elif choice == "OpenStreetMap":
+        style = {
+            "version": 8,
+            "sources": {
+                "osm": {
+                    "type": "raster",
+                    "tiles": ["https://a.tile.openstreetmap.org/{z}/{x}/{y}.png"],
+                    "tileSize": 256,
+                    "attribution": "© OpenStreetMap Contributors"
+                }
+            },
+            "layers": [{"id": "osm-tiles", "type": "raster", "source": "osm", "minzoom": 0, "maxzoom": 19}]
+        }
+        uri = "data:application/json;charset=utf-8," + urllib.parse.quote(json.dumps(style))
+        return "mapbox", uri
+    elif choice == "Satellite (Esri Free)":
+        style = {
+            "version": 8,
+            "sources": {
+                "esri": {
+                    "type": "raster",
+                    "tiles": ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+                    "tileSize": 256,
+                    "attribution": "Tiles © Esri"
+                }
+            },
+            "layers": [{"id": "esri-tiles", "type": "raster", "source": "esri", "minzoom": 0, "maxzoom": 19}]
+        }
+        uri = "data:application/json;charset=utf-8," + urllib.parse.quote(json.dumps(style))
+        return "mapbox", uri
 
 gdf = load_data(res_val)
 map_layers = []
@@ -150,7 +164,6 @@ if not gdf.empty:
     if enable_3d_terrain:
         TERRAIN_IMAGE = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
         
-        # Scaling mathematical decoders effectively multiplies elevation logic dynamically
         ELEVATION_DECODER = {
             "rScaler": 256 * terrain_exaggeration,
             "gScaler": 1 * terrain_exaggeration,
@@ -177,7 +190,6 @@ if not gdf.empty:
         terrain_layer = pdk.Layer("TerrainLayer", **terrain_kwargs)
         map_layers.insert(0, terrain_layer)
 
-    # Reverted: Using direct column names since PyDeck automatically maps them for GeoDataFrames.
     hex_layer = pdk.Layer(
         "GeoJsonLayer",
         data=filtered_gdf,
@@ -196,7 +208,7 @@ if not gdf.empty:
     if not filtered_gdf.empty:
         minx, miny, maxx, maxy = filtered_gdf.total_bounds
     else:
-        minx, miny, maxx, maxy = 120.0, 10.0, 125.0, 15.0 # Fallback bounds to avoid crashing
+        minx, miny, maxx, maxy = 120.0, 10.0, 125.0, 15.0 
 
     if show_ssa:
         with st.spinner("Loading Hazard Geometries..."):
@@ -206,10 +218,8 @@ if not gdf.empty:
                 local_ssa = ssa_gdf.cx[minx:maxx, miny:maxy].copy()
                 
                 if not local_ssa.empty:
-                    # OPTIMIZATION: Simplify geometries and drop excess columns.
-                    # This drastically reduces the JSON payload size, preventing the browser from freezing.
-                    local_ssa['geometry'] = local_ssa['geometry'].simplify(tolerance=0.002, preserve_topology=True)
-                    
+                    # Removed .simplify() completely to prevent Python CPU lockups!
+                    # Filtering columns strictly to lower JSON payload size sent to browser.
                     if 'haz' in local_ssa.columns:
                         local_ssa['haz'] = local_ssa['haz'].astype(float)
                         local_ssa = local_ssa[['geometry', 'haz']]
@@ -244,15 +254,18 @@ if not gdf.empty:
         bearing=0
     )
 
-    # CRITICAL FIX: Disable the 2D default mapbox/carto basemap when terrain is enabled.
-    # Otherwise, it attempts to render over/z-fight with the new 3D surface
     if enable_3d_terrain:
-        provider = None
-        style_uri = None
+        # Create a blank dark style to prevent Z-fighting with the 3D Terrain texture
+        blank_style = {
+            "version": 8,
+            "sources": {},
+            "layers": [{"id": "background", "type": "background", "paint": {"background-color": "#111111"}}]
+        }
+        style_uri = "data:application/json;charset=utf-8," + urllib.parse.quote(json.dumps(blank_style))
+        provider = "mapbox"
     else:
-        provider, style_uri, bg_layer = get_basemap_config(basemap_choice)
-        if bg_layer:
-            map_layers.insert(0, bg_layer)
+        # Rely on the user's highly effective custom JSON mapbox styles for 2D map viewing
+        provider, style_uri = get_basemap_config(basemap_choice)
 
     r = pdk.Deck(
         layers=map_layers,
@@ -263,7 +276,6 @@ if not gdf.empty:
         height=map_height
     )
 
-    # FIX: 'width' is invalid syntax for st.pydeck_chart. Replaced with 'use_container_width'
     st.pydeck_chart(r, use_container_width=True)
     
     overflow_height = map_height - 500

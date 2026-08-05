@@ -82,7 +82,7 @@ def load_context_layer(file_path):
     except Exception as e:
         return gpd.GeoDataFrame()
 
-def get_basemap_config(choice):
+<comment-tag id="1">def get_basemap_config(choice):
     if choice == "Dark Mode (Carto)":
         return "carto", "dark"
     elif choice == "OpenStreetMap":
@@ -114,7 +114,23 @@ def get_basemap_config(choice):
             "layers": [{"id": "esri-tiles", "type": "raster", "source": "esri", "minzoom": 0, "maxzoom": 19}]
         }
         uri = "data:application/json;charset=utf-8," + urllib.parse.quote(json.dumps(style))
-        return "mapbox", uri
+        return "mapbox", uri</comment-tag id="1" text="def get_basemap_config(choice):
+    if choice == 'Dark Mode (Carto)':
+        return 'carto', 'dark', None
+    elif choice == 'OpenStreetMap':
+        layer = pdk.Layer(
+            'TileLayer',
+            data='https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+            pickable=False
+        )
+        return None, None, layer
+    elif choice == 'Satellite (Esri Free)':
+        layer = pdk.Layer(
+            'TileLayer',
+            data='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            pickable=False
+        )
+        return None, None, layer" type="suggestion">
 
 gdf = load_data(res_val)
 map_layers = []
@@ -221,11 +237,21 @@ if not gdf.empty:
             if not ssa_gdf.empty:
                 local_ssa = ssa_gdf.cx[minx:maxx, miny:maxy].copy()
                 
-                if not local_ssa.empty:
+                <comment-tag id="2">if not local_ssa.empty:
                     if 'haz' in local_ssa.columns:
                         local_ssa['haz'] = local_ssa['haz'].astype(float)
                     elif 'ssa_level' in local_ssa.columns:
+                        local_ssa['ssa_level'] = local_ssa['ssa_level'].astype(float)</comment-tag id="2" text="if not local_ssa.empty:
+                    # OPTIMIZATION: Simplify geometries and drop excess columns.
+                    # This drastically reduces the JSON payload size, preventing the browser from freezing.
+                    local_ssa['geometry'] = local_ssa['geometry'].simplify(tolerance=0.002, preserve_topology=True)
+                    
+                    if 'haz' in local_ssa.columns:
+                        local_ssa['haz'] = local_ssa['haz'].astype(float)
+                        local_ssa = local_ssa[['geometry', 'haz']]
+                    elif 'ssa_level' in local_ssa.columns:
                         local_ssa['ssa_level'] = local_ssa['ssa_level'].astype(float)
+                        local_ssa = local_ssa[['geometry', 'ssa_level']]" type="suggestion">
                     
                     ssa_layer = pdk.Layer(
                         "GeoJsonLayer",
@@ -254,13 +280,21 @@ if not gdf.empty:
         bearing=0
     )
 
-    # CRITICAL FIX: Disable the 2D default mapbox/carto basemap when terrain is enabled.
+    <comment-tag id="3"># CRITICAL FIX: Disable the 2D default mapbox/carto basemap when terrain is enabled.
     # Otherwise, it attempts to render over/z-fight with the new 3D surface
     if enable_3d_terrain:
         provider = None
         style_uri = None
     else:
-        provider, style_uri = get_basemap_config(basemap_choice)
+        provider, style_uri = get_basemap_config(basemap_choice)</comment-tag id="3" text="# CRITICAL FIX: Disable the 2D default mapbox/carto basemap when terrain is enabled.
+    # Otherwise, it attempts to render over/z-fight with the new 3D surface
+    if enable_3d_terrain:
+        provider = None
+        style_uri = None
+    else:
+        provider, style_uri, bg_layer = get_basemap_config(basemap_choice)
+        if bg_layer:
+            map_layers.insert(0, bg_layer)" type="suggestion">
 
     r = pdk.Deck(
         layers=map_layers,

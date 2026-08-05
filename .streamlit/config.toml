@@ -1,0 +1,5 @@
+[server]
+maxMessageSize = 200
+
+[client]
+toolbarMode = "minimal"

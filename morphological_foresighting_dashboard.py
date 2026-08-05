@@ -77,10 +77,8 @@ def load_context_layer(file_path):
         if gdf.crs is None or gdf.crs != "EPSG:4326":
             gdf = gdf.to_crs("EPSG:4326")
             
-        # CRITICAL FIX: Simplify the geometry once when the app wakes up.
-        # This reduces the vertex count so the browser's JS engine doesn't lock up 
-        # trying to triangulate complex coastal polygons when the user checks the box.
-        gdf['geometry'] = gdf['geometry'].simplify(tolerance=0.0005, preserve_topology=True)
+        # We removed the global simplification here so we have access 
+        # to the raw, high-res geometries later when we need them!
         return gdf
     except Exception as e:
         return None
@@ -120,8 +118,6 @@ def get_basemap_config(choice):
         return "mapbox", uri
 
 def get_blank_basemap():
-    # An explicitly transparent map style to guarantee Streamlit doesn't render 
-    # a default mapbox street map underneath our 3D terrain.
     style = {
         "version": 8,
         "sources": {},
@@ -267,6 +263,24 @@ if gdf is not None:
                     with exp_hazard:
                         st.markdown("🔴 **Level 3** (> 1.5m Inundation)", unsafe_allow_html=True)
                     
+                    # --- SMART DYNAMIC SIMPLIFICATION ---
+                    # Calculate the area of the current bounding box (in decimal degrees)
+                    bbox_area = (maxx - minx) * (maxy - miny)
+                    
+                    # Apply varying levels of simplification based on how big the data extent is.
+                    # If bounding box is small (zoomed in via filters), no simplification is applied!
+                    if bbox_area > 20:          # National Level
+                        tol = 0.001 
+                    elif bbox_area > 5:         # Regional Level
+                        tol = 0.0005
+                    elif bbox_area > 0.5:       # Provincial Level
+                        tol = 0.0001
+                    else:                       # City/Barangay Level
+                        tol = 0.0               # Perfect resolution
+                        
+                    if tol > 0:
+                        local_ssa['geometry'] = local_ssa['geometry'].simplify(tolerance=tol, preserve_topology=True)
+                    
                     # Strip out excess metadata for lighter JSON serialization
                     if 'haz' in local_ssa.columns:
                         local_ssa['haz'] = local_ssa['haz'].astype(float)
@@ -316,7 +330,6 @@ if gdf is not None:
         height=map_height
     )
 
-    # st.pydeck_chart handles container scaling correctly without width='stretch' errors
     st.pydeck_chart(r, use_container_width=True)
     
     overflow_height = map_height - 500

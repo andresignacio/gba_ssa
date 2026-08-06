@@ -23,7 +23,7 @@ exp_hazard = st.sidebar.expander("🌊 Hazard Overlay", expanded=True)
 with exp_hazard:
     show_ssa = st.checkbox("Show SSA4 Hazard Zones (Level 3+)", value=False)
     if show_ssa:
-        hazard_opacity = st.slider("Hazard Opacity (%)", min_value=0, max_value=100, value=60)
+        hazard_opacity = st.slider("Hazard Opacity (%)", min_value=0, max_value=100, value=47)
         st.markdown("<hr style='margin: 0.5rem 0; border-color: #334155;'/>", unsafe_allow_html=True)
         st.caption("⚠️ **Performance vs. Quality:** Lower tolerance means smoother curves but slower loading.")
         simplification_tolerance = st.slider(

@@ -58,16 +58,18 @@ with exp_map:
     st.markdown("<hr style='margin: 0.5rem 0; border-color: #334155;'/>", unsafe_allow_html=True)
     map_height = st.slider("Map Canvas Height (px)", min_value=500, max_value=1200, value=700, step=50)
 
-st.markdown(f"""
+# FIXED: Removed the f-string to restore correct syntax highlighting. 
+# FIXED: Removed the manual iframe CSS stretching which was breaking the mouse hitboxes.
+custom_css = """
     <style>
-        .block-container {{ padding-top: 1rem !important; padding-bottom: 1rem !important; max-width: 95% !important; }}
-        h1 {{ font-size: 1.8rem !important; margin-bottom: 0 !important; padding-bottom: 0 !important; }}
-        .subtitle {{ color: #64748b; font-size: 1rem; margin-top: 0; margin-bottom: 1rem; }}
-        [data-testid="stDeckGlJsonChart"] {{ height: {map_height}px !important; }}
-        [data-testid="stDeckGlJsonChart"] iframe {{ height: {map_height}px !important; }}
-        [data-testid="stSidebar"] .streamlit-expanderHeader {{ padding-top: 0.5rem; padding-bottom: 0.5rem; font-weight: 600; }}
+        .block-container { padding-top: 1rem !important; padding-bottom: 1rem !important; max-width: 95% !important; }
+        h1 { font-size: 1.8rem !important; margin-bottom: 0 !important; padding-bottom: 0 !important; }
+        .subtitle { color: #64748b; font-size: 1rem; margin-top: 0; margin-bottom: 1rem; }
+        [data-testid="stSidebar"] .streamlit-expanderHeader { padding-top: 0.5rem; padding-bottom: 0.5rem; font-weight: 600; }
     </style>
-""", unsafe_allow_html=True)
+"""
+
+st.markdown(custom_css, unsafe_allow_html=True)
 
 st.markdown("<h1>🌊 Morphological Foresighting Digital Twin</h1>", unsafe_allow_html=True)
 st.markdown("<p class='subtitle'>A Scenario-Based Exposure & 'Lost Stock' Analytics Platform.</p>", unsafe_allow_html=True)
@@ -226,13 +228,9 @@ if not gdf.empty:
     )
     map_layers.append(hex_layer)
 
-    # CRITICAL FIX: Use the UNFILTERED 'gdf' bounds, not 'filtered_gdf'.
-    # This prevents the hazard map from getting cut off horizontally 
-    # when strict sliders hide hotspots in the northern/southern provinces.
     if not gdf.empty:
         minx, miny, maxx, maxy = gdf.total_bounds
     else:
-        # Fallback bounding box covering the entire Philippine archipelago
         minx, miny, maxx, maxy = 116.0, 4.0, 127.0, 21.0
 
     if show_ssa:
@@ -289,15 +287,11 @@ if not gdf.empty:
         initial_view_state=view_state,
         map_style=style_uri,
         map_provider=provider,
-        tooltip={"html": dynamic_tooltip} if dynamic_tooltip else True,
-        height=map_height
+        tooltip={"html": dynamic_tooltip} if dynamic_tooltip else True
     )
 
-    st.pydeck_chart(r, use_container_width=True)
-    
-    overflow_height = map_height - 500
-    if overflow_height > 0:
-        st.markdown(f"<div style='height: {overflow_height}px; width: 100%; pointer-events: none;'></div>", unsafe_allow_html=True)
+    # FIXED: Replaced CSS hacks with native Streamlit height parameters
+    st.pydeck_chart(r, width='stretch', height=map_height)
 
     st.subheader("Aggregate Statistics (Displacement Hotspots)")
     col1, col2, col3, col4 = st.columns(4)
